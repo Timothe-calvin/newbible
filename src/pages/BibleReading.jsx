@@ -135,33 +135,44 @@ function BibleReading() {
       // Get all chapters for the book
       const chapters = await bibleApi.getChapters(book.id, selectedBibleId);
       
-      // Progressive loading - show first 3 chapters immediately, then load rest
-      const firstBatchSize = Math.min(3, chapters.length);
-      const firstBatch = chapters.slice(0, firstBatchSize);
-      const remainingChapters = chapters.slice(firstBatchSize);
+      // Filter out non-numeric chapters first
+      const validChapters = chapters.filter(chapter => 
+        chapter.number && !isNaN(chapter.number) && chapter.id !== 'intro'
+      );
       
-      // Load first batch of chapters concurrently
-      const firstBatchPromises = firstBatch.map(async (chapter) => {
+      // Progressive loading - show first 3 chapters immediately, then load rest
+      const firstBatchSize = Math.min(3, validChapters.length);
+      const firstBatch = validChapters.slice(0, firstBatchSize);
+      const remainingChapters = validChapters.slice(firstBatchSize);
+      
+      // Load first batch sequentially to prevent rate limiting
+      const firstBatchResults = [];
+      for (let i = 0; i < firstBatch.length; i++) {
+        const chapter = firstBatch[i];
         try {
+          // Add delay between requests
+          if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+          
           const passageId = `${book.id}.${chapter.number}`;
           const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
-          return {
+          firstBatchResults.push({
             number: chapter.number,
             content: chapterData.content,
             success: true
-          };
+          });
         } catch (error) {
           console.error(`Failed to load chapter ${chapter.number}:`, error);
-          return {
+          firstBatchResults.push({
             number: chapter.number,
             content: `<div class="chapter-error">Chapter ${chapter.number} could not be loaded. <button onclick="window.location.reload()">Retry</button></div>`,
             success: false
-          };
+          });
         }
-      });
+      }
       
-      // Wait for first batch and display immediately
-      const firstBatchResults = await Promise.all(firstBatchPromises);
+      // Display the loaded chapters immediately
       let initialContent = '';
       
       firstBatchResults
@@ -186,62 +197,61 @@ function BibleReading() {
       setBookContent(initialContent);
       setLoading(false);
       
-      // Load remaining chapters in smaller concurrent batches
+      // Load remaining chapters sequentially to prevent rate limiting
       if (remainingChapters.length > 0) {
-        const batchSize = 5; // Load 5 chapters at a time
-        for (let i = 0; i < remainingChapters.length; i += batchSize) {
-          const batch = remainingChapters.slice(i, i + batchSize);
+        // Process chapters one by one with delays to prevent rate limiting
+        for (let i = 0; i < remainingChapters.length; i++) {
+          const chapter = remainingChapters[i];
           
-          const batchPromises = batch.map(async (chapter) => {
-            try {
-              const passageId = `${book.id}.${chapter.number}`;
-              const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
-              return {
-                number: chapter.number,
-                content: chapterData.content,
-                success: true
-              };
-            } catch (error) {
-              console.error(`Failed to load chapter ${chapter.number}:`, error);
-              return {
-                number: chapter.number,
-                content: `<div class="chapter-error">Chapter ${chapter.number} could not be loaded. <button onclick="window.location.reload()">Retry</button></div>`,
-                success: false
-              };
-            }
-          });
-          
-          // Wait for this batch
-          const batchResults = await Promise.all(batchPromises);
-          
-          // Append to existing content
-          let batchContent = '';
-          batchResults
-            .sort((a, b) => a.number - b.number)
-            .forEach(result => {
-              // Add proper chapter introduction
-              const chapterIntro = getChapterIntro(book.name, result.number);
-              batchContent += `
-                <div class="chapter-container">
-                  <div class="chapter-header">
-                    <h3 class="chapter-title">${book.name} - Chapter ${result.number}</h3>
-                    ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
-                  </div>
-                  <div class="chapter-content">
-                    ${result.content}
-                  </div>
+          try {
+            // Add significant delay between requests to respect rate limits
+            await new Promise(resolve => setTimeout(resolve, 800));
+            
+            const passageId = `${book.id}.${chapter.number}`;
+            const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
+            const result = {
+              number: chapter.number,
+              content: chapterData.content,
+              success: true
+            };
+            
+            // Append this single chapter to existing content
+            const chapterIntro = getChapterIntro(book.name, result.number);
+            let chapterContent = `
+              <div class="chapter-container">
+                <div class="chapter-header">
+                  <h3 class="chapter-title">${book.name} - Chapter ${result.number}</h3>
+                  ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
                 </div>
-                <div class="chapter-break"></div>
-              `;
-            });
-          
-          setBookContent(prev => prev + batchContent);
-          
-          // Small delay between batches to prevent API rate limiting
-          if (i + batchSize < remainingChapters.length) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+                <div class="chapter-content">
+                  ${result.content}
+                </div>
+              </div>
+              <div class="chapter-break"></div>
+            `;
+            
+            setBookContent(prev => prev + chapterContent);
+            
+          } catch (error) {
+            console.error(`Failed to load chapter ${chapter.number}:`, error);
+            
+            // Add error chapter
+            const errorContent = `
+              <div class="chapter-container">
+                <div class="chapter-header">
+                  <h3 class="chapter-title">${book.name} - Chapter ${chapter.number}</h3>
+                </div>
+                <div class="chapter-content">
+                  <div class="chapter-error">Chapter ${chapter.number} could not be loaded. <button onclick="window.location.reload()">Retry</button></div>
+                </div>
+              </div>
+              <div class="chapter-break"></div>
+            `;
+            
+            setBookContent(prev => prev + errorContent);
           }
         }
+          
       }
       
     } catch (error) {
@@ -298,9 +308,18 @@ function BibleReading() {
             const firstChapters = chapters.slice(0, 2);
             const remainingChapters = chapters.slice(2);
             
-            // Load first chapters concurrently
-            const firstChapterPromises = firstChapters.map(async (chapter) => {
+            // Filter out non-numeric chapters (like intro) and load first chapters sequentially
+            const validFirstChapters = firstChapters.filter(chapter => 
+              chapter.number && !isNaN(chapter.number) && chapter.id !== 'intro'
+            );
+            
+            const firstChapterPromises = validFirstChapters.map(async (chapter, index) => {
               try {
+                // Add small delay between requests to prevent rate limiting
+                if (index > 0) {
+                  await new Promise(resolve => setTimeout(resolve, 200 * index));
+                }
+                
                 const passageId = `${book.id}.${chapter.number}`;
                 const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
                 return {
@@ -378,30 +397,42 @@ function BibleReading() {
         
         setBookContent(prev => prev + batchContent);
         
-        // Load remaining chapters for books in this batch
+        // Load remaining chapters for books in this batch with proper rate limiting
         for (const bookResult of bookResults) {
           if (bookResult.remainingChapters.length > 0) {
-            // Load remaining chapters in background
+            // Load remaining chapters sequentially to prevent rate limiting
             setTimeout(async () => {
               try {
-                const chapterPromises = bookResult.remainingChapters.map(async (chapter) => {
+                // Filter out invalid chapters
+                const validRemainingChapters = bookResult.remainingChapters.filter(chapter => 
+                  chapter.number && !isNaN(chapter.number) && chapter.id !== 'intro'
+                );
+                
+                // Load chapters sequentially instead of concurrently to prevent rate limiting
+                const chapterResults = [];
+                for (let i = 0; i < validRemainingChapters.length; i++) {
+                  const chapter = validRemainingChapters[i];
+                  
                   try {
+                    // Add delay between each request to prevent rate limiting
+                    if (i > 0) {
+                      await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                    
                     const passageId = `${bookResult.bookId}.${chapter.number}`;
                     const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
-                    return {
+                    chapterResults.push({
                       number: chapter.number,
                       content: chapterData.content
-                    };
+                    });
                   } catch (error) {
                     console.error(`Failed to load ${bookResult.bookName} chapter ${chapter.number}:`, error);
-                    return {
+                    chapterResults.push({
                       number: chapter.number,
-                      content: `<div class="chapter-error">${bookResult.bookName} ${chapter.number} could not be loaded.</div>`
-                    };
+                      content: `<div class="chapter-error">${bookResult.bookName} ${chapter.number} could not be loaded. <button onclick="window.location.reload()">Retry</button></div>`
+                    });
                   }
-                });
-                
-                const chapterResults = await Promise.all(chapterPromises);
+                }
                 
                 let chaptersContent = '';
                 chapterResults

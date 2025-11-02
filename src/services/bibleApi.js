@@ -21,8 +21,8 @@ class BibleApiService {
     // Performance monitoring
     this.performanceMonitor = apiUtils.createPerformanceMonitor();
     
-    // Rate limiting
-    this.rateLimiter = apiUtils.createRateLimiter(10, 60000); // 10 requests per minute
+    // Rate limiting - very conservative to prevent overwhelming the API
+    this.rateLimiter = apiUtils.createRateLimiter(3, 60000); // 3 requests per minute
     
     if (!this.isConfigured) {
       console.warn('Bible API not fully configured. Missing:', {

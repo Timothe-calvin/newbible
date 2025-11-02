@@ -68,6 +68,62 @@ function BibleReading() {
     return oldTestamentBooks.includes(bookId);
   };
 
+  // Get chapter introduction/context
+  const getChapterIntro = (bookName, chapterNumber) => {
+    const intros = {
+      'Genesis': {
+        1: 'The creation of the heavens, earth, and humanity',
+        3: 'The fall of mankind and the first promise of redemption',
+        12: 'God calls Abraham and makes the covenant',
+        22: 'Abraham\'s test of faith with Isaac'
+      },
+      'Exodus': {
+        3: 'Moses and the burning bush - God\'s call to deliver Israel',
+        12: 'The first Passover and exodus from Egypt',
+        20: 'The Ten Commandments given at Mount Sinai'
+      },
+      'Matthew': {
+        5: 'The Sermon on the Mount begins with the Beatitudes',
+        6: 'The Lord\'s Prayer and teachings on prayer and fasting',
+        28: 'The Great Commission - Jesus\' final instructions'
+      },
+      'John': {
+        1: 'The Word became flesh - Jesus as the eternal Word',
+        3: 'Jesus teaches Nicodemus about being born again',
+        14: 'Jesus comforts His disciples before His crucifixion',
+        20: 'The resurrection of Jesus Christ'
+      },
+      'Romans': {
+        1: 'Paul introduces the gospel and mankind\'s need for salvation',
+        3: 'All have sinned and fall short of God\'s glory',
+        8: 'Life in the Spirit and God\'s eternal love',
+        12: 'Living sacrifices and practical Christian living'
+      },
+      'Psalms': {
+        1: 'The way of the righteous versus the way of the wicked',
+        23: 'The Lord is my shepherd - a psalm of trust and comfort',
+        51: 'David\'s prayer of repentance after his sin with Bathsheba',
+        91: 'God\'s protection and refuge for those who trust in Him',
+        119: 'The longest chapter in the Bible - praising God\'s Word'
+      },
+      'Proverbs': {
+        1: 'The beginning of wisdom and the fear of the Lord',
+        31: 'The virtuous woman and wise living'
+      },
+      '1 Corinthians': {
+        13: 'The love chapter - the greatest of these is love',
+        15: 'The resurrection chapter - Christ\'s victory over death'
+      },
+      'Revelation': {
+        1: 'John\'s vision of the glorified Christ',
+        21: 'The new heaven and new earth - God\'s eternal kingdom',
+        22: 'The river of life and Jesus\' promise to return'
+      }
+    };
+
+    return intros[bookName]?.[chapterNumber] || null;
+  };
+
   // Handle book selection - load entire book with optimized loading
   const handleBookSelect = async (book) => {
     setSelectedBook(book);
@@ -111,9 +167,20 @@ function BibleReading() {
       firstBatchResults
         .sort((a, b) => a.number - b.number)
         .forEach(result => {
-          initialContent += `<div class="chapter-header"><h3>Chapter ${result.number}</h3></div>`;
-          initialContent += result.content;
-          initialContent += '<div class="chapter-break"></div>';
+          // Add proper chapter introduction
+          const chapterIntro = getChapterIntro(book.name, result.number);
+          initialContent += `
+            <div class="chapter-container">
+              <div class="chapter-header">
+                <h3 class="chapter-title">${book.name} - Chapter ${result.number}</h3>
+                ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
+              </div>
+              <div class="chapter-content">
+                ${result.content}
+              </div>
+            </div>
+            <div class="chapter-break"></div>
+          `;
         });
       
       setBookContent(initialContent);
@@ -152,9 +219,20 @@ function BibleReading() {
           batchResults
             .sort((a, b) => a.number - b.number)
             .forEach(result => {
-              batchContent += `<div class="chapter-header"><h3>Chapter ${result.number}</h3></div>`;
-              batchContent += result.content;
-              batchContent += '<div class="chapter-break"></div>';
+              // Add proper chapter introduction
+              const chapterIntro = getChapterIntro(book.name, result.number);
+              batchContent += `
+                <div class="chapter-container">
+                  <div class="chapter-header">
+                    <h3 class="chapter-title">${book.name} - Chapter ${result.number}</h3>
+                    ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
+                  </div>
+                  <div class="chapter-content">
+                    ${result.content}
+                  </div>
+                </div>
+                <div class="chapter-break"></div>
+              `;
             });
           
           setBookContent(prev => prev + batchContent);
@@ -244,9 +322,20 @@ function BibleReading() {
             firstChapterResults
               .sort((a, b) => a.number - b.number)
               .forEach(result => {
-                bookContent += `<div class="chapter-header"><h3>${book.name} ${result.number}</h3></div>`;
-                bookContent += result.content;
-                bookContent += '<div class="chapter-break"></div>';
+                // Add proper chapter introduction
+                const chapterIntro = getChapterIntro(book.name, result.number);
+                bookContent += `
+                  <div class="chapter-container">
+                    <div class="chapter-header">
+                      <h3 class="chapter-title">${book.name} - Chapter ${result.number}</h3>
+                      ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
+                    </div>
+                    <div class="chapter-content">
+                      ${result.content}
+                    </div>
+                  </div>
+                  <div class="chapter-break"></div>
+                `;
               });
             
             // Add remaining chapters (will be loaded later)
@@ -318,9 +407,20 @@ function BibleReading() {
                 chapterResults
                   .sort((a, b) => a.number - b.number)
                   .forEach(result => {
-                    chaptersContent += `<div class="chapter-header"><h3>${bookResult.bookName} ${result.number}</h3></div>`;
-                    chaptersContent += result.content;
-                    chaptersContent += '<div class="chapter-break"></div>';
+                    // Add proper chapter introduction
+                    const chapterIntro = getChapterIntro(bookResult.bookName, result.number);
+                    chaptersContent += `
+                      <div class="chapter-container">
+                        <div class="chapter-header">
+                          <h3 class="chapter-title">${bookResult.bookName} - Chapter ${result.number}</h3>
+                          ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
+                        </div>
+                        <div class="chapter-content">
+                          ${result.content}
+                        </div>
+                      </div>
+                      <div class="chapter-break"></div>
+                    `;
                   });
                 
                 // Replace loading placeholder

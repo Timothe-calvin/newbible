@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import enhancedAI from '../services/enhancedAI';
+import '../components/components.css';
 
 function Chatbot() {
   const [messages, setMessages] = useState([
-    { 
-      text: "Hello! I'm your Bible study assistant. I can help with questions about faith, Scripture, and Christian living. I'll support my answers with relevant Bible verses when possible. How can I help you today?", 
+    {
+      text: "Hello! I'm your Bible study assistant. I can help with questions about faith, Scripture, and Christian living. I'll support my answers with relevant Bible verses when possible. How can I help you today?",
       sender: 'bot',
       timestamp: new Date()
     }
@@ -30,10 +31,10 @@ function Chatbot() {
     if (!input.trim() || loading) return;
 
     const userMessage = input.trim();
-    const userMessageObj = { 
-      text: userMessage, 
-      sender: 'user', 
-      timestamp: new Date() 
+    const userMessageObj = {
+      text: userMessage,
+      sender: 'user',
+      timestamp: new Date()
     };
     
     setMessages(prev => [...prev, userMessageObj]);
@@ -52,9 +53,9 @@ function Chatbot() {
 
       const result = await enhancedAI.getChatResponse(userMessage, conversationHistory);
       
-      const botMessageObj = { 
-        text: result.response, 
-        sender: 'bot', 
+      const botMessageObj = {
+        text: result.response,
+        sender: 'bot',
         timestamp: new Date(),
         relevantVerses: result.relevantVerses,
         keywords: result.keywords,
@@ -65,8 +66,8 @@ function Chatbot() {
       
     } catch (error) {
       console.error('Chatbot error:', error);
-      setMessages(prev => [...prev, { 
-        text: "I'm sorry, I'm having trouble responding right now. Please try again later or check if your internet connection is working.", 
+      setMessages(prev => [...prev, {
+        text: "I'm sorry, I'm having trouble responding right now. Please try again later or check if your internet connection is working.",
         sender: 'bot',
         timestamp: new Date(),
         isError: true
@@ -90,59 +91,33 @@ function Chatbot() {
                 
                 {/* Display relevant Bible verses for bot messages */}
                 {message.sender === 'bot' && message.relevantVerses && message.relevantVerses.length > 0 && (
-                  <div className="bible-verses" style={{
-                    marginTop: '15px',
-                    padding: '15px',
-                    backgroundColor: '#f8f9fa',
-                    borderRadius: '8px',
-                    borderLeft: '4px solid #3498db'
-                  }}>
-                    <h5 style={{margin: '0 0 10px 0', color: '#3498db', fontSize: '14px'}}>
-                      📖 Supporting Scripture:
-                    </h5>
-                    {message.relevantVerses.map((verse, vIndex) => (
-                      <div key={vIndex} style={{marginBottom: '10px'}}>
-                        <div style={{
-                          fontSize: '13px',
-                          fontStyle: 'italic',
-                          color: '#2c3e50',
-                          lineHeight: '1.4',
-                          marginBottom: '5px'
-                        }}>
-                          "{verse.text}"
+                  <div className="bible-verses">
+                    <h5>📖 Supporting Scripture:</h5>
+                    <div className="mt-1">
+                      {message.relevantVerses.map((verse, vIndex) => (
+                        <div key={vIndex} className="verse-item">
+                          <div className="verse-text">
+                            "{verse.text}"
+                          </div>
+                          <div className="verse-reference">
+                            — {verse.reference}
+                          </div>
                         </div>
-                        <div style={{
-                          fontSize: '12px',
-                          fontWeight: 'bold',
-                          color: '#3498db'
-                        }}>
-                          — {verse.reference}
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 )}
                 
                 {/* Display keywords that were searched */}
                 {message.sender === 'bot' && message.keywords && message.keywords.length > 0 && (
-                  <div className="search-keywords" style={{
-                    marginTop: '10px',
-                    fontSize: '11px',
-                    color: '#666',
-                    fontStyle: 'italic'
-                  }}>
+                  <div className="search-keywords">
                     🔍 Searched for: {message.keywords.join(', ')}
                   </div>
                 )}
               </div>
               
               {/* Timestamp */}
-              <div className="message-timestamp" style={{
-                fontSize: '10px',
-                color: '#999',
-                marginTop: '5px',
-                textAlign: message.sender === 'user' ? 'right' : 'left'
-              }}>
+              <div className={`message-timestamp ${message.sender === 'user' ? 'text-right' : 'text-left'}`}>
                 {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : ''}
               </div>
             </div>

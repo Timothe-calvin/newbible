@@ -1,6 +1,4 @@
-// Enhanced AI Service with Bible Integration
-// Combines OpenRouter AI responses with relevant Bible verses
-
+import apiUtils from './apiUtils.js';
 import bibleApi from './bibleApi.js';
 
 class EnhancedAIService {
@@ -8,6 +6,16 @@ class EnhancedAIService {
     this.apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
     this.apiUrl = import.meta.env.VITE_OPENROUTER_API_URL;
     this.bibleApiKey = import.meta.env.VITE_BIBLE_API_KEY;
+    
+    // Enhanced caching for AI responses
+    this.responseCache = apiUtils.createCache(30 * 60 * 1000); // 30 minutes
+    this.versesCache = apiUtils.createCache(15 * 60 * 1000); // 15 minutes
+    
+    // Performance monitoring
+    this.performanceMonitor = apiUtils.createPerformanceMonitor();
+    
+    // Rate limiting for AI requests
+    this.rateLimiter = apiUtils.createRateLimiter(5, 60000); // 5 requests per minute
     
     if (!this.apiKey) {
       console.warn('OpenRouter API key not configured');
@@ -49,10 +57,25 @@ class EnhancedAIService {
       return [];
     }
 
+    const cacheKey = `verses-${keywords.join('-')}-${limit}`;
+    const cached = this.versesCache.get(cacheKey);
+    if (cached) {
+      console.log(`📖 Returning cached verses for: "${keywords.join(', ')}"`);
+      return cached;
+    }
+
     try {
+      const timer = this.performanceMonitor.start('findRelevantVerses');
+      
       const searchQuery = keywords.join(' ');
       const verses = await bibleApi.searchVerses(searchQuery, limit);
-      return verses.slice(0, limit); // Ensure we don't exceed limit
+      const result = verses.slice(0, limit); // Ensure we don't exceed limit
+      
+      // Cache the result
+      this.versesCache.set(cacheKey, result);
+      
+      console.log(`📖 Found ${result.length} verses for "${searchQuery}" in ${timer.end()}ms`);
+      return result;
     } catch (error) {
       console.error('Error finding relevant verses:', error);
       return [];
@@ -65,12 +88,27 @@ class EnhancedAIService {
       throw new Error('OpenRouter API key not configured');
     }
 
+    // Check for cached response (simple caching based on user message)
+    const cacheKey = `chat-${userMessage.trim().toLowerCase().substring(0, 100)}`;
+    const cached = this.responseCache.get(cacheKey);
+    if (cached) {
+      console.log('🤖 Returning cached AI response');
+      return cached;
+    }
+
+    const timer = this.performanceMonitor.start('getChatResponse');
+
     try {
+      // Check rate limiting
+      await this.rateLimiter.checkLimit();
+      
       // Extract Bible-related keywords from user message
       const keywords = this.extractBibleKeywords(userMessage);
       
-      // Find relevant Bible verses
+      // Find relevant Bible verses (in parallel for performance)
+      const versesTimer = this.performanceMonitor.start('findRelevantVerses');
       const relevantVerses = await this.findRelevantVerses(keywords, 2);
+      versesTimer.end();
       
       // Build enhanced system prompt
       let systemPrompt = `You are a knowledgeable and compassionate Bible study assistant. Your role is to:
@@ -116,8 +154,17 @@ Guidelines:
         }
       ];
 
-      // Make API call to OpenRouter
-      const response = await fetch(this.apiUrl, {
+      // Make API call to OpenRouter with timeout and retry
+      const requestBody = JSON.stringify({
+        model: "anthropic/claude-3.5-sonnet",
+        messages: messages,
+        max_tokens: 800,
+        temperature: 0.7,
+        top_p: 0.9
+      });
+
+      const monitor = this.performanceMonitor.start('api-call');
+      const response = await apiUtils.apiCall(this.apiUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
@@ -125,14 +172,9 @@ Guidelines:
           'HTTP-Referer': window.location.origin,
           'X-Title': 'Bible Study App - AI Assistant'
         },
-        body: JSON.stringify({
-          model: "anthropic/claude-3.5-sonnet",
-          messages: messages,
-          max_tokens: 800,
-          temperature: 0.7,
-          top_p: 0.9
-        })
-      });
+        body: requestBody
+      }, 30000, 2); // 30 second timeout, 2 retries
+      monitor.end();
 
       if (!response.ok) {
         throw new Error(`OpenRouter API request failed: ${response.status}`);
@@ -141,13 +183,18 @@ Guidelines:
       const data = await response.json();
       const aiResponse = data.choices[0]?.message?.content || "I'm sorry, I couldn't generate a response.";
 
-      // Return response with metadata
-      return {
+      const result = {
         response: aiResponse,
         relevantVerses: relevantVerses,
         keywords: keywords,
         hasVerses: relevantVerses.length > 0
       };
+
+      // Cache the result
+      this.responseCache.set(cacheKey, result);
+      
+      console.log(`🤖 Generated AI response in ${timer.end()}ms`);
+      return result;
 
     } catch (error) {
       console.error('Enhanced AI Service error:', error);
@@ -187,6 +234,28 @@ Guidelines:
       bibleApi: !!this.bibleApiKey,
       fullyConfigured: !!(this.apiKey && this.bibleApiKey)
     };
+  }
+
+  // Performance monitoring methods
+  getPerformanceMetrics() {
+    return {
+      apiMetrics: this.performanceMonitor.getAllMetrics(),
+      cacheStats: {
+        responses: this.responseCache ? 'initialized' : 'not initialized',
+        verses: this.versesCache ? 'initialized' : 'not initialized'
+      },
+      configuration: {
+        isConfigured: this.isConfigured(),
+        rateLimiting: 'enabled'
+      }
+    };
+  }
+
+  // Clear all caches
+  clearCaches() {
+    this.responseCache.clear();
+    this.versesCache.clear();
+    console.log('🧠 All AI caches cleared');
   }
 }
 

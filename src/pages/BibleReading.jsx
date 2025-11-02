@@ -6,6 +6,7 @@ function BibleReading() {
   const [bookContent, setBookContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, message: '' });
   
   // Bible version state
   const [availableBibles, setAvailableBibles] = useState([]);
@@ -67,97 +68,287 @@ function BibleReading() {
     return oldTestamentBooks.includes(bookId);
   };
 
-  // Handle book selection - load entire book
+  // Handle book selection - load entire book with optimized loading
   const handleBookSelect = async (book) => {
     setSelectedBook(book);
     setLoading(true);
     setBookContent('');
+    setError('');
     
     try {
       // Get all chapters for the book
       const chapters = await bibleApi.getChapters(book.id, selectedBibleId);
-      let fullBookContent = '';
       
-      // Load each chapter sequentially
-      for (const chapter of chapters) {
+      // Progressive loading - show first 3 chapters immediately, then load rest
+      const firstBatchSize = Math.min(3, chapters.length);
+      const firstBatch = chapters.slice(0, firstBatchSize);
+      const remainingChapters = chapters.slice(firstBatchSize);
+      
+      // Load first batch of chapters concurrently
+      const firstBatchPromises = firstBatch.map(async (chapter) => {
         try {
           const passageId = `${book.id}.${chapter.number}`;
           const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
-          fullBookContent += `<div class="chapter-header"><h3>Chapter ${chapter.number}</h3></div>`;
-          fullBookContent += chapterData.content;
-          fullBookContent += '<div class="chapter-break"></div>';
-        } catch (chapterError) {
-          console.error(`Failed to load chapter ${chapter.number}:`, chapterError);
-          fullBookContent += `<div class="chapter-error">Chapter ${chapter.number} could not be loaded.</div>`;
+          return {
+            number: chapter.number,
+            content: chapterData.content,
+            success: true
+          };
+        } catch (error) {
+          console.error(`Failed to load chapter ${chapter.number}:`, error);
+          return {
+            number: chapter.number,
+            content: `<div class="chapter-error">Chapter ${chapter.number} could not be loaded. <button onclick="window.location.reload()">Retry</button></div>`,
+            success: false
+          };
+        }
+      });
+      
+      // Wait for first batch and display immediately
+      const firstBatchResults = await Promise.all(firstBatchPromises);
+      let initialContent = '';
+      
+      firstBatchResults
+        .sort((a, b) => a.number - b.number)
+        .forEach(result => {
+          initialContent += `<div class="chapter-header"><h3>Chapter ${result.number}</h3></div>`;
+          initialContent += result.content;
+          initialContent += '<div class="chapter-break"></div>';
+        });
+      
+      setBookContent(initialContent);
+      setLoading(false);
+      
+      // Load remaining chapters in smaller concurrent batches
+      if (remainingChapters.length > 0) {
+        const batchSize = 5; // Load 5 chapters at a time
+        for (let i = 0; i < remainingChapters.length; i += batchSize) {
+          const batch = remainingChapters.slice(i, i + batchSize);
+          
+          const batchPromises = batch.map(async (chapter) => {
+            try {
+              const passageId = `${book.id}.${chapter.number}`;
+              const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
+              return {
+                number: chapter.number,
+                content: chapterData.content,
+                success: true
+              };
+            } catch (error) {
+              console.error(`Failed to load chapter ${chapter.number}:`, error);
+              return {
+                number: chapter.number,
+                content: `<div class="chapter-error">Chapter ${chapter.number} could not be loaded. <button onclick="window.location.reload()">Retry</button></div>`,
+                success: false
+              };
+            }
+          });
+          
+          // Wait for this batch
+          const batchResults = await Promise.all(batchPromises);
+          
+          // Append to existing content
+          let batchContent = '';
+          batchResults
+            .sort((a, b) => a.number - b.number)
+            .forEach(result => {
+              batchContent += `<div class="chapter-header"><h3>Chapter ${result.number}</h3></div>`;
+              batchContent += result.content;
+              batchContent += '<div class="chapter-break"></div>';
+            });
+          
+          setBookContent(prev => prev + batchContent);
+          
+          // Small delay between batches to prevent API rate limiting
+          if (i + batchSize < remainingChapters.length) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
         }
       }
       
-      setBookContent(fullBookContent);
     } catch (error) {
       console.error('Failed to load book:', error);
-      setError('Failed to load book content.');
-    } finally {
+      setError(`Failed to load ${book.name}. Please try again or select a different book.`);
       setLoading(false);
     }
   };
 
-  // Handle reading the entire Bible from Genesis to Revelation
+  // Handle reading the entire Bible from Genesis to Revelation (optimized)
   const handleReadEntireBible = async () => {
     setLoading(true);
     setBookContent('');
     setSelectedBook({ name: 'The Holy Bible', id: 'ENTIRE_BIBLE' });
+    setError('');
     
     try {
-      let fullBibleContent = '';
-      
-      // Add Bible header
-      fullBibleContent += `
+      // Add Bible header immediately
+      let initialContent = `
         <div class="bible-header" style="text-align: center; margin-bottom: 40px; padding: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 15px;">
           <h1 style="margin: 0 0 10px 0; font-size: 2.5em;">The Holy Bible</h1>
           <p style="margin: 0; font-size: 1.2em; opacity: 0.9;">From Genesis to Revelation</p>
+          <p style="margin: 10px 0 0 0; font-size: 0.9em; opacity: 0.8;">Loading books progressively for better performance...</p>
         </div>
       `;
       
-      // Load each book in canonical order
-      for (const book of availableBooks) {
-        try {
-          // Get all chapters for the book
-          const chapters = await bibleApi.getChapters(book.id, selectedBibleId);
-          
-          // Add book header
-          const testament = isOldTestament(book.id) ? 'Old Testament' : 'New Testament';
-          fullBibleContent += `
-            <div class="book-header" style="margin: 50px 0 30px 0; padding: 20px; background: ${isOldTestament(book.id) ? '#8e44ad' : '#27ae60'}; color: white; border-radius: 10px; text-align: center;">
-              <h2 style="margin: 0 0 5px 0; font-size: 2em;">${book.name}</h2>
-              <p style="margin: 0; opacity: 0.9;">${testament}</p>
-            </div>
-          `;
-          
-          // Load each chapter
-          for (const chapter of chapters) {
-            try {
-              const passageId = `${book.id}.${chapter.number}`;
-              const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
-              fullBibleContent += `<div class="chapter-header"><h3>${book.name} ${chapter.number}</h3></div>`;
-              fullBibleContent += chapterData.content;
-              fullBibleContent += '<div class="chapter-break"></div>';
-            } catch (chapterError) {
-              console.error(`Failed to load ${book.name} chapter ${chapter.number}:`, chapterError);
-              fullBibleContent += `<div class="chapter-error">${book.name} ${chapter.number} could not be loaded.</div>`;
+      setBookContent(initialContent);
+      setLoading(false);
+      
+      // Process books in smaller batches for better user experience
+      const booksPerBatch = 3; // Process 3 books at a time
+      
+      for (let i = 0; i < availableBooks.length; i += booksPerBatch) {
+        const bookBatch = availableBooks.slice(i, i + booksPerBatch);
+        
+        // Process books in parallel within each batch
+        const bookPromises = bookBatch.map(async (book) => {
+          try {
+            // Get all chapters for the book
+            const chapters = await bibleApi.getChapters(book.id, selectedBibleId);
+            
+            let bookContent = '';
+            
+            // Add book header
+            const testament = isOldTestament(book.id) ? 'Old Testament' : 'New Testament';
+            bookContent += `
+              <div class="book-header" style="margin: 50px 0 30px 0; padding: 20px; background: ${isOldTestament(book.id) ? '#8e44ad' : '#27ae60'}; color: white; border-radius: 10px; text-align: center;">
+                <h2 style="margin: 0 0 5px 0; font-size: 2em;">${book.name}</h2>
+                <p style="margin: 0; opacity: 0.9;">${testament}</p>
+              </div>
+            `;
+            
+            // Load first few chapters immediately, then load rest progressively
+            const firstChapters = chapters.slice(0, 2);
+            const remainingChapters = chapters.slice(2);
+            
+            // Load first chapters concurrently
+            const firstChapterPromises = firstChapters.map(async (chapter) => {
+              try {
+                const passageId = `${book.id}.${chapter.number}`;
+                const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
+                return {
+                  number: chapter.number,
+                  content: chapterData.content,
+                  success: true
+                };
+              } catch (error) {
+                console.error(`Failed to load ${book.name} chapter ${chapter.number}:`, error);
+                return {
+                  number: chapter.number,
+                  content: `<div class="chapter-error">${book.name} ${chapter.number} could not be loaded.</div>`,
+                  success: false
+                };
+              }
+            });
+            
+            const firstChapterResults = await Promise.all(firstChapterPromises);
+            firstChapterResults
+              .sort((a, b) => a.number - b.number)
+              .forEach(result => {
+                bookContent += `<div class="chapter-header"><h3>${book.name} ${result.number}</h3></div>`;
+                bookContent += result.content;
+                bookContent += '<div class="chapter-break"></div>';
+              });
+            
+            // Add remaining chapters (will be loaded later)
+            if (remainingChapters.length > 0) {
+              bookContent += `<div class="loading-placeholder" data-book="${book.id}" data-start-chapter="${remainingChapters[0].number}">
+                <p style="text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px; margin: 20px 0;">
+                  <em>Loading remaining chapters of ${book.name}...</em>
+                </p>
+              </div>`;
             }
+            
+            return {
+              bookId: book.id,
+              bookName: book.name,
+              content: bookContent,
+              remainingChapters: remainingChapters,
+              success: true
+            };
+            
+          } catch (error) {
+            console.error(`Failed to load book ${book.name}:`, error);
+            return {
+              bookId: book.id,
+              bookName: book.name,
+              content: `<div class="chapter-error">The book of ${book.name} could not be loaded.</div>`,
+              remainingChapters: [],
+              success: false
+            };
           }
-          
-        } catch (bookError) {
-          console.error(`Failed to load book ${book.name}:`, bookError);
-          fullBibleContent += `<div class="chapter-error">The book of ${book.name} could not be loaded.</div>`;
+        });
+        
+        // Wait for this batch of books
+        const bookResults = await Promise.all(bookPromises);
+        
+        // Append books to content
+        let batchContent = '';
+        bookResults.forEach(result => {
+          batchContent += result.content;
+        });
+        
+        setBookContent(prev => prev + batchContent);
+        
+        // Load remaining chapters for books in this batch
+        for (const bookResult of bookResults) {
+          if (bookResult.remainingChapters.length > 0) {
+            // Load remaining chapters in background
+            setTimeout(async () => {
+              try {
+                const chapterPromises = bookResult.remainingChapters.map(async (chapter) => {
+                  try {
+                    const passageId = `${bookResult.bookId}.${chapter.number}`;
+                    const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
+                    return {
+                      number: chapter.number,
+                      content: chapterData.content
+                    };
+                  } catch (error) {
+                    console.error(`Failed to load ${bookResult.bookName} chapter ${chapter.number}:`, error);
+                    return {
+                      number: chapter.number,
+                      content: `<div class="chapter-error">${bookResult.bookName} ${chapter.number} could not be loaded.</div>`
+                    };
+                  }
+                });
+                
+                const chapterResults = await Promise.all(chapterPromises);
+                
+                let chaptersContent = '';
+                chapterResults
+                  .sort((a, b) => a.number - b.number)
+                  .forEach(result => {
+                    chaptersContent += `<div class="chapter-header"><h3>${bookResult.bookName} ${result.number}</h3></div>`;
+                    chaptersContent += result.content;
+                    chaptersContent += '<div class="chapter-break"></div>';
+                  });
+                
+                // Replace loading placeholder
+                setBookContent(prev => {
+                  const placeholder = `<div class="loading-placeholder" data-book="${bookResult.bookId}" data-start-chapter="${bookResult.remainingChapters[0].number}">
+                <p style="text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px; margin: 20px 0;">
+                  <em>Loading remaining chapters of ${bookResult.bookName}...</em>
+                </p>
+              </div>`;
+                  return prev.replace(placeholder, chaptersContent);
+                });
+                
+              } catch (error) {
+                console.error(`Failed to load remaining chapters for ${bookResult.bookName}:`, error);
+              }
+            }, 1000 + (i * 500)); // Stagger the loading
+          }
+        }
+        
+        // Small delay between book batches to prevent API overwhelming
+        if (i + booksPerBatch < availableBooks.length) {
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
       }
       
-      setBookContent(fullBibleContent);
     } catch (error) {
       console.error('Failed to load entire Bible:', error);
-      setError('Failed to load the entire Bible. Please try selecting individual books.');
-    } finally {
+      setError('Failed to load the entire Bible. Please try selecting individual books instead.');
       setLoading(false);
     }
   };
@@ -346,8 +537,30 @@ function BibleReading() {
           {loading ? (
             <div style={{textAlign: 'center', padding: '40px'}}>
               <p>Loading {selectedBook.name}...</p>
+              {loadingProgress.total > 0 && (
+                <>
+                  <div style={{
+                    width: '60%',
+                    margin: '20px auto',
+                    height: '8px',
+                    backgroundColor: '#e0e0e0',
+                    borderRadius: '4px',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${(loadingProgress.current / loadingProgress.total) * 100}%`,
+                      height: '100%',
+                      backgroundColor: '#3498db',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                  <p style={{fontSize: '12px', color: '#666'}}>
+                    {loadingProgress.message} ({loadingProgress.current}/{loadingProgress.total})
+                  </p>
+                </>
+              )}
               <p style={{fontSize: '14px', color: '#666'}}>
-                {selectedBook.id === 'ENTIRE_BIBLE' ? 'This will take several minutes as we load all 66 books' : 'This may take a moment as we load all chapters'}
+                {selectedBook.id === 'ENTIRE_BIBLE' ? 'Loading books progressively for better performance' : 'Loading first chapters immediately, then loading remaining chapters'}
               </p>
             </div>
           ) : (

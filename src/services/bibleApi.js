@@ -1,5 +1,7 @@
 // Bible API Service
-// Centralized service for all Bible API interactions
+// Centralized service for all Bible API interactions with performance optimization
+
+import apiUtils from './apiUtils.js';
 
 class BibleApiService {
   constructor() {
@@ -8,13 +10,24 @@ class BibleApiService {
     this.defaultBibleId = import.meta.env.VITE_DEFAULT_BIBLE_ID;
     
     this.isConfigured = !!(this.apiKey && this.baseUrl && this.defaultBibleId);
-    this.availableBibles = null; // Cache for available Bibles
-    this.englishBibles = null; // Cache for English-only Bibles
+    
+    // Enhanced caching with TTL
+    this.biblesCache = apiUtils.createCache(30 * 60 * 1000); // 30 minutes
+    this.englishBiblesCache = apiUtils.createCache(60 * 60 * 1000); // 1 hour
+    this.booksCache = apiUtils.createCache(10 * 60 * 1000); // 10 minutes
+    this.passageCache = apiUtils.createCache(5 * 60 * 1000); // 5 minutes
+    this.searchCache = apiUtils.createCache(2 * 60 * 1000); // 2 minutes
+    
+    // Performance monitoring
+    this.performanceMonitor = apiUtils.createPerformanceMonitor();
+    
+    // Rate limiting
+    this.rateLimiter = apiUtils.createRateLimiter(10, 60000); // 10 requests per minute
     
     if (!this.isConfigured) {
       console.warn('Bible API not fully configured. Missing:', {
         apiKey: !this.apiKey,
-        baseUrl: !this.baseUrl, 
+        baseUrl: !this.baseUrl,
         bibleId: !this.defaultBibleId
       });
     }
@@ -36,23 +49,38 @@ class BibleApiService {
   async getAvailableBibles() {
     this.checkConfiguration();
 
-    // Return cached result if available
-    if (this.availableBibles) {
-      return this.availableBibles;
+    // Check cache first
+    const cacheKey = 'available-bibles';
+    const cached = this.biblesCache.get(cacheKey);
+    if (cached) {
+      console.log('📚 Returning cached available Bibles');
+      return cached;
     }
 
+    const timer = this.performanceMonitor.start('getAvailableBibles');
+    
     try {
-      const response = await fetch(`${this.baseUrl}/bibles`, {
+      // Check rate limiting
+      await this.rateLimiter.checkLimit();
+      
+      const monitor = this.performanceMonitor.start('api-call');
+      const response = await apiUtils.apiCall(`${this.baseUrl}/bibles`, {
         headers: this.getHeaders()
       });
+      monitor.end();
 
       if (!response.ok) {
         throw new Error(`Failed to fetch available Bibles: ${response.status}`);
       }
 
       const data = await response.json();
-      this.availableBibles = data.data || [];
-      return this.availableBibles;
+      const bibles = data.data || [];
+      
+      // Cache the result
+      this.biblesCache.set(cacheKey, bibles);
+      
+      console.log(`📚 Fetched ${bibles.length} available Bibles in ${timer.end()}ms`);
+      return bibles;
     } catch (error) {
       console.error('Error fetching available Bibles:', error);
       throw error;
@@ -61,22 +89,27 @@ class BibleApiService {
 
   // Get English-only Bible versions
   async getEnglishBibles() {
-    if (this.englishBibles) {
-      return this.englishBibles;
+    const cacheKey = 'english-bibles';
+    const cached = this.englishBiblesCache.get(cacheKey);
+    if (cached) {
+      console.log('🇺🇸 Returning cached English Bibles');
+      return cached;
     }
 
+    const timer = this.performanceMonitor.start('getEnglishBibles');
+    
     try {
       const allBibles = await this.getAvailableBibles();
       
       // Filter for English Bibles only
-      this.englishBibles = allBibles.filter(bible => {
+      const englishBibles = allBibles.filter(bible => {
         const lang = bible.language?.id?.toLowerCase() || '';
         const name = bible.name?.toLowerCase() || '';
         const abbr = bible.abbreviation?.toLowerCase() || '';
         
         return (
-          lang === 'eng' || 
-          lang === 'en' || 
+          lang === 'eng' ||
+          lang === 'en' ||
           lang.includes('english') ||
           name.includes('english') ||
           // Common English Bible abbreviations
@@ -94,7 +127,11 @@ class BibleApiService {
         return a.name.localeCompare(b.name);
       });
 
-      return this.englishBibles;
+      // Cache the result
+      this.englishBiblesCache.set(cacheKey, englishBibles);
+      
+      console.log(`🇺🇸 Filtered ${englishBibles.length} English Bibles in ${timer.end()}ms`);
+      return englishBibles;
     } catch (error) {
       console.error('Error filtering English Bibles:', error);
       // Return default KJV if filtering fails
@@ -115,32 +152,82 @@ class BibleApiService {
     };
   }
 
-  // Fetch a specific verse or passage (with optional Bible version)
-  async getPassage(passageId, includeVerseNumbers = true, bibleId = null) {
+  // Fetch a specific verse or passage (with optional Bible version and retry logic)
+  async getPassage(passageId, includeVerseNumbers = true, bibleId = null, retryCount = 0) {
     this.checkConfiguration();
     
     const selectedBibleId = bibleId || this.defaultBibleId;
+    const cacheKey = `passage-${selectedBibleId}-${passageId}-${includeVerseNumbers}`;
+    
+    // Check cache first
+    const cached = this.passageCache.get(cacheKey);
+    if (cached) {
+      console.log(`📖 Returning cached passage: ${passageId}`);
+      return cached;
+    }
+
+    const timer = this.performanceMonitor.start('getPassage');
 
     try {
+      // Check rate limiting
+      await this.rateLimiter.checkLimit();
+      
       const url = `${this.baseUrl}/bibles/${selectedBibleId}/passages/${passageId}${includeVerseNumbers ? '?include-verse-numbers=true' : ''}`;
       
-      const response = await fetch(url, {
-        headers: this.getHeaders()
+      const monitor = this.performanceMonitor.start('api-call');
+      const response = await apiUtils.apiCall(url, {
+        headers: this.getHeaders(),
+        timeout: 10000 // 10 second timeout
       });
+      monitor.end();
 
       if (!response.ok) {
+        // Handle specific HTTP status codes
+        if (response.status === 429 && retryCount < 3) {
+          // Rate limited, wait and retry
+          const waitTime = Math.pow(2, retryCount) * 1000; // Exponential backoff
+          console.log(`Rate limited, retrying ${passageId} in ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          return this.getPassage(passageId, includeVerseNumbers, bibleId, retryCount + 1);
+        }
+        
+        if (response.status === 404) {
+          throw new Error(`Passage not found: ${passageId}`);
+        }
+        
+        if (response.status >= 500 && retryCount < 2) {
+          // Server error, retry
+          console.log(`Server error for ${passageId}, retrying...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return this.getPassage(passageId, includeVerseNumbers, bibleId, retryCount + 1);
+        }
+        
         throw new Error(`Failed to fetch passage: ${response.status}`);
       }
 
       const data = await response.json();
-      return {
+      const result = {
         reference: data.data.reference,
         content: data.data.content,
         copyright: data.data.copyright,
         bibleId: selectedBibleId
       };
+      
+      // Cache the result with longer TTL for successful requests
+      this.passageCache.set(cacheKey, result);
+      
+      console.log(`📖 Fetched passage ${passageId} in ${timer.end()}ms`);
+      return result;
     } catch (error) {
-      console.error('Error fetching passage:', error);
+      console.error(`Error fetching passage ${passageId}:`, error);
+      
+      // For network errors, try one more time if we haven't already
+      if (retryCount === 0 && (error.name === 'NetworkError' || error.name === 'TypeError')) {
+        console.log(`Network error for ${passageId}, retrying once...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return this.getPassage(passageId, includeVerseNumbers, bibleId, 1);
+      }
+      
       throw error;
     }
   }
@@ -150,13 +237,28 @@ class BibleApiService {
     this.checkConfiguration();
     
     const selectedBibleId = bibleId || this.defaultBibleId;
+    const cacheKey = `search-${selectedBibleId}-${query}-${limit}`;
+    
+    // Check cache first
+    const cached = this.searchCache.get(cacheKey);
+    if (cached) {
+      console.log(`🔍 Returning cached search results for: "${query}"`);
+      return cached;
+    }
+
+    const timer = this.performanceMonitor.start('searchVerses');
 
     try {
+      // Check rate limiting
+      await this.rateLimiter.checkLimit();
+      
       const url = `${this.baseUrl}/bibles/${selectedBibleId}/search?query=${encodeURIComponent(query)}&limit=${limit}`;
       
-      const response = await fetch(url, {
+      const monitor = this.performanceMonitor.start('api-call');
+      const response = await apiUtils.apiCall(url, {
         headers: this.getHeaders()
       });
+      monitor.end();
 
       if (!response.ok) {
         throw new Error(`Search request failed: ${response.status}`);
@@ -164,8 +266,9 @@ class BibleApiService {
 
       const data = await response.json();
       
+      let results = [];
       if (data.data && data.data.verses) {
-        return data.data.verses.map(verse => ({
+        results = data.data.verses.map(verse => ({
           reference: verse.reference,
           text: verse.text.replace(/<[^>]*>/g, ''), // Remove HTML tags
           bibleId: selectedBibleId,
@@ -174,7 +277,12 @@ class BibleApiService {
           verseNumber: verse.verseNumber
         }));
       }
-      return [];
+      
+      // Cache the result
+      this.searchCache.set(cacheKey, results);
+      
+      console.log(`🔍 Found ${results.length} verses for "${query}" in ${timer.end()}ms`);
+      return results;
     } catch (error) {
       console.error('Error searching verses:', error);
       throw error;
@@ -271,29 +379,80 @@ class BibleApiService {
     }
   }
 
-  // Get chapters for a specific book (with optional Bible version)
+  // Get chapters for a specific book (with optional Bible version and caching)
   async getChapters(bookId, bibleId = null) {
     this.checkConfiguration();
     
     const selectedBibleId = bibleId || this.defaultBibleId;
+    const cacheKey = `chapters-${selectedBibleId}-${bookId}`;
+    
+    // Check cache first
+    const cached = this.booksCache.get(cacheKey);
+    if (cached) {
+      console.log(`📚 Returning cached chapters for ${bookId}`);
+      return cached;
+    }
 
     try {
       const url = `${this.baseUrl}/bibles/${selectedBibleId}/books/${bookId}/chapters`;
       
       const response = await fetch(url, {
-        headers: this.getHeaders()
+        headers: this.getHeaders(),
+        timeout: 8000 // 8 second timeout
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch chapters: ${response.status}`);
+        throw new Error(`Failed to fetch chapters for ${bookId}: ${response.status}`);
       }
 
       const data = await response.json();
-      return data.data || [];
+      const chapters = data.data || [];
+      
+      // Cache the result
+      this.booksCache.set(cacheKey, chapters);
+      
+      console.log(`📚 Fetched ${chapters.length} chapters for ${bookId}`);
+      return chapters;
     } catch (error) {
-      console.error('Error fetching chapters:', error);
+      console.error(`Error fetching chapters for ${bookId}:`, error);
       throw error;
     }
+  }
+
+  // Get multiple passages concurrently with batching
+  async getMultiplePassages(passageIds, includeVerseNumbers = true, bibleId = null, batchSize = 5) {
+    const selectedBibleId = bibleId || this.defaultBibleId;
+    const results = [];
+    
+    // Process in batches to avoid overwhelming the API
+    for (let i = 0; i < passageIds.length; i += batchSize) {
+      const batch = passageIds.slice(i, i + batchSize);
+      
+      const batchPromises = batch.map(async (passageId) => {
+        try {
+          const passage = await this.getPassage(passageId, includeVerseNumbers, selectedBibleId);
+          return { passageId, passage, success: true };
+        } catch (error) {
+          console.error(`Failed to fetch passage ${passageId}:`, error);
+          return { 
+            passageId, 
+            passage: null, 
+            success: false, 
+            error: error.message 
+          };
+        }
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+      
+      // Small delay between batches
+      if (i + batchSize < passageIds.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+    
+    return results;
   }
 
   // Get verses for a specific chapter (with optional Bible version)
@@ -432,6 +591,34 @@ class BibleApiService {
 
     const normalizedName = bookName.toLowerCase().trim();
     return bookMap[normalizedName] || bookName.toUpperCase().replace(/\s+/g, '');
+  }
+
+  // Performance monitoring methods
+  getPerformanceMetrics() {
+    return {
+      apiMetrics: this.performanceMonitor.getAllMetrics(),
+      cacheStats: {
+        bibles: this.biblesCache ? 'initialized' : 'not initialized',
+        englishBibles: this.englishBiblesCache ? 'initialized' : 'not initialized',
+        books: this.booksCache ? 'initialized' : 'not initialized',
+        passages: this.passageCache ? 'initialized' : 'not initialized',
+        searches: this.searchCache ? 'initialized' : 'not initialized'
+      },
+      configuration: {
+        isConfigured: this.isConfigured,
+        rateLimiting: 'enabled'
+      }
+    };
+  }
+
+  // Clear all caches
+  clearCaches() {
+    this.biblesCache.clear();
+    this.englishBiblesCache.clear();
+    this.booksCache.clear();
+    this.passageCache.clear();
+    this.searchCache.clear();
+    console.log('🗑️ All API caches cleared');
   }
 }
 

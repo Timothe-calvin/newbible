@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import configValidator from '../services/configValidator';
+import './components.css';
 
 function ConfigStatus({ showDetails = false }) {
   const [report, setReport] = useState(null);
@@ -22,75 +23,55 @@ function ConfigStatus({ showDetails = false }) {
   }, []);
 
   if (!report) {
-    return <div>Loading configuration status...</div>;
+    return <div className="text-center p-2">Loading configuration status...</div>;
   }
 
   const getStatusIcon = (isValid) => {
     return isValid ? '✅' : '❌';
   };
 
-  const getStatusColor = (isValid) => {
-    return isValid ? '#27ae60' : '#e74c3c';
+  const getStatusClass = (isValid) => {
+    return isValid ? 'success' : 'error';
   };
 
   return (
-    <div className="config-status" style={{
-      padding: '15px',
-      backgroundColor: '#f8f9fa',
-      borderRadius: '8px',
-      border: `1px solid ${report.status.overall ? '#27ae60' : '#e74c3c'}`,
-      fontSize: '14px'
-    }}>
-      <div 
-        className="status-header" 
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          cursor: 'pointer'
-        }}
+    <div className={`config-status ${getStatusClass(report.status.overall)}`}>
+      <div
+        className="status-header"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <div style={{
-          fontWeight: 'bold',
-          color: getStatusColor(report.status.overall)
-        }}>
+        <div className={`status-header-title ${getStatusClass(report.status.overall)}`}>
           {getStatusIcon(report.status.overall)} System Status: {report.status.overall ? 'All Services Operational' : 'Issues Detected'}
         </div>
-        <div style={{
-          fontSize: '12px',
-          color: '#666',
-          transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-          transition: 'transform 0.3s'
-        }}>
+        <div className={`arrow-icon ${isExpanded ? 'expanded' : ''}`}>
           ▼
         </div>
       </div>
 
       {isExpanded && (
-        <div className="status-details" style={{marginTop: '15px'}}>
+        <div className="status-details mt-2">
           {/* Service Status */}
-          <div className="services-status" style={{marginBottom: '15px'}}>
-            <h4 style={{margin: '0 0 10px 0', color: '#2c3e50'}}>Services:</h4>
+          <div className="services-status">
+            <h4>Services:</h4>
             
-            <div style={{display: 'grid', gap: '8px'}}>
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+            <div className="mt-1">
+              <div className="service-item mb-1">
                 <span>PayPal Donations:</span>
-                <span style={{color: getStatusColor(report.services.paypal.isValid)}}>
+                <span className={`service-status ${getStatusClass(report.services.paypal.isValid)}`}>
                   {getStatusIcon(report.services.paypal.isValid)} {report.services.paypal.message}
                 </span>
               </div>
               
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+              <div className="service-item mb-1">
                 <span>Bible API:</span>
-                <span style={{color: getStatusColor(report.services.bible.isValid)}}>
+                <span className={`service-status ${getStatusClass(report.services.bible.isValid)}`}>
                   {getStatusIcon(report.services.bible.isValid)} {report.services.bible.message}
                 </span>
               </div>
               
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+              <div className="service-item mb-1">
                 <span>OpenRouter AI:</span>
-                <span style={{color: getStatusColor(report.services.openRouter.isValid)}}>
+                <span className={`service-status ${getStatusClass(report.services.openRouter.isValid)}`}>
                   {getStatusIcon(report.services.openRouter.isValid)} {report.services.openRouter.message}
                 </span>
               </div>
@@ -99,60 +80,44 @@ function ConfigStatus({ showDetails = false }) {
 
           {/* Missing Configuration */}
           {report.missing.length > 0 && (
-            <div className="missing-config" style={{marginBottom: '15px'}}>
-              <h4 style={{margin: '0 0 10px 0', color: '#e74c3c'}}>Missing Configuration:</h4>
-              {report.missing.map((item, index) => (
-                <div key={index} style={{
-                  padding: '8px',
-                  backgroundColor: '#fff3cd',
-                  border: '1px solid #ffeaa7',
-                  borderRadius: '4px',
-                  marginBottom: '8px'
-                }}>
-                  <div style={{fontWeight: 'bold', color: '#856404'}}>
-                    {item.service}
-                  </div>
-                  <div style={{fontSize: '12px', color: '#856404'}}>
-                    Missing: {item.variables.join(', ')}
-                  </div>
-                  <div style={{fontSize: '12px', color: '#856404', fontStyle: 'italic'}}>
-                    Impact: {item.impact}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Recommendations */}
-          {report.recommendations.length > 0 && (
-            <div className="recommendations">
-              <h4 style={{margin: '0 0 10px 0', color: '#2c3e50'}}>Recommendations:</h4>
-              <div style={{
-                backgroundColor: '#e8f5e8',
-                border: '1px solid #27ae60',
-                borderRadius: '4px',
-                padding: '10px'
-              }}>
-                {report.recommendations.map((rec, index) => (
-                  <div key={index} style={{
-                    fontSize: '12px',
-                    color: '#2c3e50',
-                    marginBottom: index < report.recommendations.length - 1 ? '4px' : '0'
-                  }}>
-                    {rec}
+            <div className="missing-config">
+              <h4>Missing Configuration:</h4>
+              <div className="mt-1">
+                {report.missing.map((item, index) => (
+                  <div key={index} className="missing-config-item">
+                    <div className="service-name">
+                      {item.service}
+                    </div>
+                    <div className="missing-vars">
+                      Missing: {item.variables.join(', ')}
+                    </div>
+                    <div className="impact">
+                      Impact: {item.impact}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
+          {/* Recommendations */}
+          {report.recommendations.length > 0 && (
+            <div className="recommendations">
+              <h4>Recommendations:</h4>
+              <div className="recommendations-content">
+                <div className="mt-1">
+                  {report.recommendations.map((rec, index) => (
+                    <div key={index} className="recommendation-item">
+                      {rec}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Timestamp */}
-          <div style={{
-            fontSize: '11px',
-            color: '#999',
-            textAlign: 'right',
-            marginTop: '10px'
-          }}>
+          <div className="timestamp">
             Last checked: {new Date(report.timestamp).toLocaleTimeString()}
           </div>
         </div>

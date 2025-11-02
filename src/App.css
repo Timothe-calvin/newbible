@@ -868,3 +868,109 @@ li p, ul p, ol p {
     gap: 10px;
   }
 }
+
+/* Bible Reading Optimizations */
+.chapter-header {
+  margin: 30px 0 15px 0;
+  padding: 15px 20px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  border-radius: 8px;
+  border-left: 4px solid #3498db;
+}
+
+.chapter-header h3 {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 1.4em;
+  font-weight: 600;
+}
+
+.chapter-break {
+  height: 2px;
+  background: linear-gradient(to right, transparent, #e0e0e0, transparent);
+  margin: 30px 0;
+  border-radius: 1px;
+}
+
+.chapter-error {
+  background: #ffebee;
+  color: #c62828;
+  padding: 15px;
+  border-radius: 8px;
+  border-left: 4px solid #e53935;
+  margin: 15px 0;
+  text-align: center;
+}
+
+.chapter-error button {
+  background: #e53935;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  margin-left: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.chapter-error button:hover {
+  background: #c62828;
+}
+
+.loading-placeholder {
+  background: #f8f9fa;
+  border: 2px dashed #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  margin: 20px 0;
+  text-align: center;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Book content improvements */
+.book-content {
+  line-height: 1.9;
+  font-size: 18px;
+  text-align: justify;
+}
+
+.book-content p {
+  margin-bottom: 1em;
+}
+
+.book-content .verse-num {
+  font-weight: bold;
+  color: #666;
+  font-size: 0.85em;
+  vertical-align: super;
+  margin-right: 2px;
+}
+
+/* Progress bar animations */
+.progress-bar {
+  overflow: hidden;
+  background: #e0e0e0;
+  border-radius: 4px;
+  position: relative;
+}
+
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}

@@ -3,10 +3,12 @@ import bibleApi from '../services/bibleApi';
 
 function BibleReading() {
   const [selectedBook, setSelectedBook] = useState(null);
-  const [bookContent, setBookContent] = useState('');
+  const [currentChapter, setCurrentChapter] = useState(1);
+  const [chapterContent, setChapterContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, message: '' });
+  const [totalChapters, setTotalChapters] = useState(0);
+  const [chapterList, setChapterList] = useState([]);
   
   // Bible version state
   const [availableBibles, setAvailableBibles] = useState([]);
@@ -124,140 +126,91 @@ function BibleReading() {
     return intros[bookName]?.[chapterNumber] || null;
   };
 
-  // Handle book selection - load entire book with optimized loading
+  // Handle book selection - load chapter by chapter navigation
   const handleBookSelect = async (book) => {
     setSelectedBook(book);
     setLoading(true);
-    setBookContent('');
+    setChapterContent('');
     setError('');
+    setCurrentChapter(1);
     
     try {
       // Get all chapters for the book
       const chapters = await bibleApi.getChapters(book.id, selectedBibleId);
       
-      // Filter out non-numeric chapters first
+      // Filter out non-numeric chapters (like intro)
       const validChapters = chapters.filter(chapter => 
         chapter.number && !isNaN(chapter.number) && chapter.id !== 'intro'
       );
       
-      // Progressive loading - show first 3 chapters immediately, then load rest
-      const firstBatchSize = Math.min(3, validChapters.length);
-      const firstBatch = validChapters.slice(0, firstBatchSize);
-      const remainingChapters = validChapters.slice(firstBatchSize);
+      setChapterList(validChapters);
+      setTotalChapters(validChapters.length);
       
-      // Load first batch sequentially to prevent rate limiting
-      const firstBatchResults = [];
-      for (let i = 0; i < firstBatch.length; i++) {
-        const chapter = firstBatch[i];
-        try {
-          // Add delay between requests
-          if (i > 0) {
-            await new Promise(resolve => setTimeout(resolve, 300));
-          }
-          
-          const passageId = `${book.id}.${chapter.number}`;
-          const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
-          firstBatchResults.push({
-            number: chapter.number,
-            content: chapterData.content,
-            success: true
-          });
-        } catch (error) {
-          console.error(`Failed to load chapter ${chapter.number}:`, error);
-          firstBatchResults.push({
-            number: chapter.number,
-            content: `<div class="chapter-error">Chapter ${chapter.number} could not be loaded. <button onclick="window.location.reload()">Retry</button></div>`,
-            success: false
-          });
-        }
-      }
-      
-      // Display the loaded chapters immediately
-      let initialContent = '';
-      
-      firstBatchResults
-        .sort((a, b) => a.number - b.number)
-        .forEach(result => {
-          // Add proper chapter introduction
-          const chapterIntro = getChapterIntro(book.name, result.number);
-          initialContent += `
-            <div class="chapter-container">
-              <div class="chapter-header">
-                <h3 class="chapter-title">${book.name} - Chapter ${result.number}</h3>
-                ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
-              </div>
-              <div class="chapter-content">
-                ${result.content}
-              </div>
-            </div>
-            <div class="chapter-break"></div>
-          `;
-        });
-      
-      setBookContent(initialContent);
-      setLoading(false);
-      
-      // Load remaining chapters sequentially to prevent rate limiting
-      if (remainingChapters.length > 0) {
-        // Process chapters one by one with delays to prevent rate limiting
-        for (let i = 0; i < remainingChapters.length; i++) {
-          const chapter = remainingChapters[i];
-          
-          try {
-            // Add significant delay between requests to respect rate limits
-            await new Promise(resolve => setTimeout(resolve, 800));
-            
-            const passageId = `${book.id}.${chapter.number}`;
-            const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
-            const result = {
-              number: chapter.number,
-              content: chapterData.content,
-              success: true
-            };
-            
-            // Append this single chapter to existing content
-            const chapterIntro = getChapterIntro(book.name, result.number);
-            let chapterContent = `
-              <div class="chapter-container">
-                <div class="chapter-header">
-                  <h3 class="chapter-title">${book.name} - Chapter ${result.number}</h3>
-                  ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
-                </div>
-                <div class="chapter-content">
-                  ${result.content}
-                </div>
-              </div>
-              <div class="chapter-break"></div>
-            `;
-            
-            setBookContent(prev => prev + chapterContent);
-            
-          } catch (error) {
-            console.error(`Failed to load chapter ${chapter.number}:`, error);
-            
-            // Add error chapter
-            const errorContent = `
-              <div class="chapter-container">
-                <div class="chapter-header">
-                  <h3 class="chapter-title">${book.name} - Chapter ${chapter.number}</h3>
-                </div>
-                <div class="chapter-content">
-                  <div class="chapter-error">Chapter ${chapter.number} could not be loaded. <button onclick="window.location.reload()">Retry</button></div>
-                </div>
-              </div>
-              <div class="chapter-break"></div>
-            `;
-            
-            setBookContent(prev => prev + errorContent);
-          }
-        }
-          
+      // Load first chapter
+      if (validChapters.length > 0) {
+        await loadChapter(book, 1);
       }
       
     } catch (error) {
-      console.error('Failed to load book:', error);
+      console.error('Failed to load book chapters:', error);
       setError(`Failed to load ${book.name}. Please try again or select a different book.`);
       setLoading(false);
+    }
+  };
+
+  // Load a specific chapter
+  const loadChapter = async (book, chapterNumber) => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const passageId = `${book.id}.${chapterNumber}`;
+      const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
+      
+      // Get chapter introduction
+      const chapterIntro = getChapterIntro(book.name, chapterNumber);
+      
+      const content = `
+        <div class="chapter-container">
+          <div class="chapter-header">
+            <h3 class="chapter-title">${book.name} - Chapter ${chapterNumber}</h3>
+            ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
+          </div>
+          <div class="chapter-content">
+            ${chapterData.content}
+          </div>
+        </div>
+      `;
+      
+      setChapterContent(content);
+      setCurrentChapter(chapterNumber);
+      setLoading(false);
+      
+    } catch (error) {
+      console.error(`Failed to load chapter ${chapterNumber}:`, error);
+      setError(`Failed to load chapter ${chapterNumber}. Please try again.`);
+      setLoading(false);
+    }
+  };
+
+  // Navigate to next chapter
+  const handleNextChapter = () => {
+    if (currentChapter < totalChapters) {
+      loadChapter(selectedBook, currentChapter + 1);
+    }
+  };
+
+  // Navigate to previous chapter
+  const handlePrevChapter = () => {
+    if (currentChapter > 1) {
+      loadChapter(selectedBook, currentChapter - 1);
+    }
+  };
+
+  // Navigate to specific chapter
+  const handleGoToChapter = (chapterNumber) => {
+    if (chapterNumber >= 1 && chapterNumber <= totalChapters) {
+      loadChapter(selectedBook, chapterNumber);
     }
   };
 
@@ -536,19 +489,18 @@ function BibleReading() {
               flexWrap: 'wrap',
               justifyContent: 'center'
             }}>
-              <button
-                onClick={() => handleReadEntireBible()}
-                className="btn"
-                style={{
-                  backgroundColor: '#e74c3c',
-                  color: 'white',
-                  padding: '15px 25px',
-                  fontSize: '16px',
-                  fontWeight: 'bold'
-                }}
-              >
-                📖 Read the Entire Bible (Genesis to Revelation)
-              </button>
+              {/* Entire Bible reading disabled for chapter-by-chapter navigation */}
+              <div style={{
+                padding: '15px 25px',
+                backgroundColor: '#f8f9fa',
+                borderRadius: '8px',
+                textAlign: 'center',
+                border: '2px dashed #dee2e6'
+              }}>
+                <p style={{margin: '0', color: '#6c757d', fontStyle: 'italic'}}>
+                  📖 For a better reading experience, select individual books below to read chapter by chapter
+                </p>
+              </div>
             </div>
             <p style={{textAlign: 'center', color: '#666', fontSize: '14px', marginBottom: '30px'}}>
               Or select individual books below to read one at a time
@@ -636,81 +588,213 @@ function BibleReading() {
           </div>
         </>
       ) : (
-        // Full Book/Bible Content
+        // Chapter Navigation View
         <>
           <div style={{marginBottom: '20px'}}>
             <button 
-              onClick={() => setSelectedBook(null)}
+              onClick={() => {
+                setSelectedBook(null);
+                setChapterContent('');
+                setCurrentChapter(1);
+                setTotalChapters(0);
+              }}
               className="btn"
               style={{marginBottom: '15px'}}
             >
               ← Back to Books
             </button>
-            <h3>{selectedBook.name}</h3>
-            {availableBibles.find(b => b.id === selectedBibleId) && (
-              <p style={{color: '#666'}}>
-                {availableBibles.find(b => b.id === selectedBibleId).abbreviation} - {availableBibles.find(b => b.id === selectedBibleId).name}
-              </p>
-            )}
-            <p style={{color: '#888', fontSize: '14px'}}>
-              {selectedBook.id === 'ENTIRE_BIBLE' ? 'Reading the entire Bible from Genesis to Revelation' : 'Reading the entire book from beginning to end'}
-            </p>
+            
+            {/* Book Header */}
+            <div style={{
+              backgroundColor: 'white',
+              padding: '20px',
+              borderRadius: '12px',
+              boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+              marginBottom: '20px'
+            }}>
+              <h3 style={{margin: '0 0 10px 0', color: '#2c3e50'}}>{selectedBook.name}</h3>
+              {availableBibles.find(b => b.id === selectedBibleId) && (
+                <p style={{color: '#666', margin: '0 0 10px 0'}}>
+                  {availableBibles.find(b => b.id === selectedBibleId).abbreviation} - {availableBibles.find(b => b.id === selectedBibleId).name}
+                </p>
+              )}
+              
+              {/* Chapter Progress */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '15px'
+              }}>
+                <div style={{color: '#7f8c8d', fontSize: '14px'}}>
+                  Chapter {currentChapter} of {totalChapters}
+                </div>
+                
+                {/* Chapter Selector */}
+                <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                  <label style={{fontSize: '14px', color: '#666'}}>Jump to:</label>
+                  <select 
+                    value={currentChapter} 
+                    onChange={(e) => handleGoToChapter(parseInt(e.target.value))}
+                    style={{
+                      padding: '5px 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #ddd',
+                      fontSize: '14px'
+                    }}
+                  >
+                    {Array.from({length: totalChapters}, (_, i) => (
+                      <option key={i + 1} value={i + 1}>Chapter {i + 1}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
           
           {error && (
-            <div className="error-message">
-              <p style={{color: 'red', padding: '15px', backgroundColor: '#ffe6e6', borderRadius: '5px', border: '1px solid #ffcccc'}}>
-                <strong>Error:</strong> {error}
-              </p>
+            <div className="error-message" style={{marginBottom: '20px'}}>
+              <div style={{
+                padding: '20px',
+                backgroundColor: '#fff5f5',
+                borderRadius: '12px',
+                border: '2px solid #fed7d7',
+                boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
+              }}>
+                <div style={{display: 'flex', alignItems: 'center', marginBottom: '10px'}}>
+                  <span style={{fontSize: '24px', marginRight: '10px'}}>⚠️</span>
+                  <strong style={{color: '#e53e3e', fontSize: '18px'}}>Loading Error</strong>
+                </div>
+                <p style={{color: '#c53030', margin: '0 0 15px 0', lineHeight: 1.5}}>
+                  {error}
+                </p>
+                <button
+                  onClick={() => loadChapter(selectedBook, currentChapter)}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#e53e3e',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  Try Again
+                </button>
+              </div>
             </div>
           )}
           
           {loading ? (
-            <div style={{textAlign: 'center', padding: '40px'}}>
-              <p>Loading {selectedBook.name}...</p>
-              {loadingProgress.total > 0 && (
-                <>
-                  <div style={{
-                    width: '60%',
-                    margin: '20px auto',
-                    height: '8px',
-                    backgroundColor: '#e0e0e0',
-                    borderRadius: '4px',
-                    overflow: 'hidden'
-                  }}>
-                    <div style={{
-                      width: `${(loadingProgress.current / loadingProgress.total) * 100}%`,
-                      height: '100%',
-                      backgroundColor: '#3498db',
-                      transition: 'width 0.3s ease'
-                    }} />
-                  </div>
-                  <p style={{fontSize: '12px', color: '#666'}}>
-                    {loadingProgress.message} ({loadingProgress.current}/{loadingProgress.total})
-                  </p>
-                </>
-              )}
-              <p style={{fontSize: '14px', color: '#666'}}>
-                {selectedBook.id === 'ENTIRE_BIBLE' ? 'Loading books progressively for better performance' : 'Loading first chapters immediately, then loading remaining chapters'}
+            <div style={{
+              textAlign: 'center',
+              padding: '40px',
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+              marginBottom: '20px'
+            }}>
+              <div style={{
+                display: 'inline-block',
+                width: '40px',
+                height: '40px',
+                border: '4px solid #f3f3f3',
+                borderTop: '4px solid #3498db',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+                marginBottom: '15px'
+              }}></div>
+              <p style={{margin: 0, color: '#666', fontSize: '16px'}}>
+                Loading {selectedBook.name} - Chapter {currentChapter}...
               </p>
             </div>
           ) : (
-            <div className="book-content" style={{
-              backgroundColor: 'white',
-              padding: '30px',
-              borderRadius: '10px',
-              boxShadow: '0 3px 15px rgba(0,0,0,0.1)',
-              lineHeight: '1.8',
-              fontSize: '18px'
-            }}>
-              <div 
-                dangerouslySetInnerHTML={{ __html: bookContent }}
-                style={{
-                  textAlign: 'justify',
-                  color: '#2c3e50'
-                }}
-              />
-            </div>
+            <>
+              {/* Chapter Content */}
+              <div className="chapter-display" style={{
+                backgroundColor: 'white',
+                borderRadius: '15px',
+                boxShadow: '0 5px 20px rgba(0,0,0,0.08)',
+                overflow: 'hidden',
+                marginBottom: '30px'
+              }}>
+                <div 
+                  dangerouslySetInnerHTML={{ __html: chapterContent }}
+                  style={{
+                    lineHeight: '1.8',
+                    fontSize: '18px',
+                    color: '#2c3e50'
+                  }}
+                />
+              </div>
+              
+              {/* Navigation Buttons */}
+              <div style={{
+                backgroundColor: 'white',
+                padding: '25px',
+                borderRadius: '15px',
+                boxShadow: '0 5px 20px rgba(0,0,0,0.08)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '15px'
+              }}>
+                <button
+                  onClick={handlePrevChapter}
+                  disabled={currentChapter <= 1}
+                  style={{
+                    padding: '12px 24px',
+                    backgroundColor: currentChapter <= 1 ? '#e9ecef' : '#6c757d',
+                    color: currentChapter <= 1 ? '#6c757d' : 'white',
+                    border: 'none',
+                    borderRadius: '25px',
+                    cursor: currentChapter <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  ← Previous Chapter
+                </button>
+                
+                <div style={{
+                  textAlign: 'center',
+                  color: '#495057',
+                  fontSize: '16px',
+                  fontWeight: 'bold'
+                }}>
+                  {selectedBook.name} - Chapter {currentChapter}
+                </div>
+                
+                <button
+                  onClick={handleNextChapter}
+                  disabled={currentChapter >= totalChapters}
+                  style={{
+                    padding: '12px 24px',
+                    backgroundColor: currentChapter >= totalChapters ? '#e9ecef' : '#28a745',
+                    color: currentChapter >= totalChapters ? '#6c757d' : 'white',
+                    border: 'none',
+                    borderRadius: '25px',
+                    cursor: currentChapter >= totalChapters ? 'not-allowed' : 'pointer',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  Next Chapter →
+                </button>
+              </div>
+            </>
           )}
         </>
       )}

@@ -1,20 +1,120 @@
 import React, { useState, useEffect } from 'react';
 import bibleApi from '../services/bibleApi';
+import preloadService from '../services/preloadService';
 
 function BibleReading() {
+  // Constants
+  const API_RATE_LIMIT_COOLDOWN = 6000; // 6 seconds between API requests
+  const BATCH_PRELOAD_DELAY = 5000; // 5 seconds before starting batch preload
+  const MAX_PRELOAD_CHAPTERS = 3; // Number of chapters to preload ahead
+  
   const [selectedBook, setSelectedBook] = useState(null);
   const [currentChapter, setCurrentChapter] = useState(1);
   const [chapterContent, setChapterContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [totalChapters, setTotalChapters] = useState(0);
-  const [chapterList, setChapterList] = useState([]);
   
   // Bible version state
   const [availableBibles, setAvailableBibles] = useState([]);
   const [selectedBibleId, setSelectedBibleId] = useState('');
   const [loadingBibles, setLoadingBibles] = useState(true);
   const [availableBooks, setAvailableBooks] = useState([]);
+  
+  // Smart caching and loading
+  const [chapterCache, setChapterCache] = useState(new Map());
+  const [batchLoadingStatus, setBatchLoadingStatus] = useState({ loading: false, count: 0 });
+  
+  // Navigation protection to prevent rapid clicking
+  const [navigationCooldown, setNavigationCooldown] = useState(false);
+  const [lastNavigationTime, setLastNavigationTime] = useState(0);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  
+  // Generate cache key for chapters
+  const getCacheKey = (book, chapterNumber, bibleId) => {
+    return `${book?.id}-${chapterNumber}-${bibleId}`;
+  };
+  
+  // Smart batch preloading for Bible Reading
+  const batchPreloadChapters = async (book, startChapter, bibleId, maxChapters = 3) => {
+    if (!book || startChapter > totalChapters) return;
+    
+    setBatchLoadingStatus({ loading: true, count: 0 });
+    console.log(`🚀 Starting batch preload for ${book.name} chapters ${startChapter}-${Math.min(startChapter + maxChapters - 1, totalChapters)}`);
+    
+    const chaptersToLoad = [];
+    for (let i = 0; i < maxChapters && (startChapter + i) <= totalChapters; i++) {
+      const chapterNum = startChapter + i;
+      const cacheKey = getCacheKey(book, chapterNum, bibleId);
+      
+      if (!chapterCache.has(cacheKey)) {
+        chaptersToLoad.push(chapterNum);
+      }
+    }
+    
+    if (chaptersToLoad.length === 0) {
+      setBatchLoadingStatus({ loading: false, count: 0 });
+      return;
+    }
+    
+    // Load chapters through queue system - no artificial delays needed
+    const loadPromises = chaptersToLoad.map(async (chapterNum, i) => {
+        try {
+          console.log(`📖 Batch loading chapter ${chapterNum} of ${book.name}`);
+          
+          const passageId = `${book.id}.${chapterNum}`;
+          const chapterData = await bibleApi.getPassage(passageId, true, bibleId, 'normal');
+          
+          // Get chapter introduction
+          const chapterIntro = getChapterIntro(book.name, chapterNum);
+          
+          const content = `
+            <div class="chapter-container">
+              <div class="chapter-header">
+                <h3 class="chapter-title">${book.name} - Chapter ${chapterNum}</h3>
+                ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
+              </div>
+              <div class="chapter-content">
+                ${chapterData.content}
+              </div>
+            </div>
+          `;
+          
+          // Cache the loaded chapter
+          const cacheKey = getCacheKey(book, chapterNum, bibleId);
+          setChapterCache(prevCache => {
+            const newCache = new Map(prevCache);
+            newCache.set(cacheKey, content);
+            return newCache;
+          });
+          
+          setBatchLoadingStatus(prev => ({ 
+            loading: prev.count + 1 < chaptersToLoad.length,
+            count: prev.count + 1 
+          }));
+          
+          console.log(`✅ Batch loaded chapter ${chapterNum} (${i + 1}/${chaptersToLoad.length})`);
+          
+        } catch (error) {
+          console.error(`Failed to batch load chapter ${chapterNum}:`, error);
+          
+          setBatchLoadingStatus(prev => ({ 
+            loading: prev.count + 1 < chaptersToLoad.length,
+            count: prev.count + 1 
+          }));
+          
+          // If rate limited, stop batch loading
+          if (error.message && error.message.includes('Rate limit')) {
+            console.log('Rate limit hit - stopping batch preload');
+            setBatchLoadingStatus(prev => ({ loading: false, count: prev.count + 1 }));
+            return;
+          }
+        }
+    });
+    
+    await Promise.all(loadPromises);
+    setBatchLoadingStatus({ loading: false, count: chaptersToLoad.length });
+  };
 
   // Load available Bible versions on component mount
   useEffect(() => {
@@ -47,7 +147,10 @@ function BibleReading() {
   const handleBibleVersionChange = async (newBibleId) => {
     setSelectedBibleId(newBibleId);
     setSelectedBook(null);
-    setBookContent('');
+    setChapterContent('');
+    
+    // Clear cache when switching Bible versions
+    clearChapterCache();
     
     try {
       const books = await bibleApi.getBooks(newBibleId);
@@ -134,6 +237,9 @@ function BibleReading() {
     setError('');
     setCurrentChapter(1);
     
+    // Clear cache when switching books
+    clearChapterCache();
+    
     try {
       // Get all chapters for the book
       const chapters = await bibleApi.getChapters(book.id, selectedBibleId);
@@ -143,7 +249,6 @@ function BibleReading() {
         chapter.number && !isNaN(chapter.number) && chapter.id !== 'intro'
       );
       
-      setChapterList(validChapters);
       setTotalChapters(validChapters.length);
       
       // Load first chapter
@@ -164,27 +269,89 @@ function BibleReading() {
     setError('');
     
     try {
-      const passageId = `${book.id}.${chapterNumber}`;
-      const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
+      let content;
       
-      // Get chapter introduction
-      const chapterIntro = getChapterIntro(book.name, chapterNumber);
+      // Check preload service cache first
+      const preloadedData = preloadService.getCached('chapter', `${book.id}.${chapterNumber}`, selectedBibleId);
+      let loadedFromCache = false;
       
-      const content = `
-        <div class="chapter-container">
-          <div class="chapter-header">
-            <h3 class="chapter-title">${book.name} - Chapter ${chapterNumber}</h3>
-            ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
+      if (preloadedData) {
+        console.log(`Loading ${book.name} Chapter ${chapterNumber} from preload cache`);
+        loadedFromCache = true;
+        
+        // Get chapter introduction
+        const chapterIntro = getChapterIntro(book.name, chapterNumber);
+        
+        content = `
+          <div class="chapter-container">
+            <div class="chapter-header">
+              <h3 class="chapter-title">${book.name} - Chapter ${chapterNumber}</h3>
+              ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
+            </div>
+            <div class="chapter-content">
+              ${preloadedData.content}
+            </div>
           </div>
-          <div class="chapter-content">
-            ${chapterData.content}
-          </div>
-        </div>
-      `;
+        `;
+      } else {
+        // Check local cache
+        const cacheKey = getCacheKey(book, chapterNumber, selectedBibleId);
+        
+        if (chapterCache.has(cacheKey)) {
+          console.log(`Loading ${book.name} Chapter ${chapterNumber} from local cache`);
+          content = chapterCache.get(cacheKey);
+          loadedFromCache = true;
+        } else {
+          // Load chapter from API with high priority for user-requested chapters
+          const passageId = `${book.id}.${chapterNumber}`;
+          const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId, 'high');
+          
+          // Get chapter introduction
+          const chapterIntro = getChapterIntro(book.name, chapterNumber);
+          
+          content = `
+            <div class="chapter-container">
+              <div class="chapter-header">
+                <h3 class="chapter-title">${book.name} - Chapter ${chapterNumber}</h3>
+                ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
+              </div>
+              <div class="chapter-content">
+                ${chapterData.content}
+              </div>
+            </div>
+          `;
+          
+          // Cache the loaded chapter in both caches
+          setChapterCache(prevCache => {
+            const newCache = new Map(prevCache);
+            newCache.set(cacheKey, content);
+            return newCache;
+          });
+          
+          // Also cache in preload service
+          preloadService.setCached('chapter', `${book.id}.${chapterNumber}`, {
+            content: chapterData.content,
+            book: book,
+            chapter: chapterNumber,
+            bibleId: selectedBibleId
+          }, selectedBibleId);
+        }
+      }
       
       setChapterContent(content);
       setCurrentChapter(chapterNumber);
       setLoading(false);
+      
+      // Smart batch preloading - load next chapters if not cached
+      if (!loadedFromCache && chapterNumber < totalChapters && !batchLoadingStatus.loading) {
+        setTimeout(() => {
+          batchPreloadChapters(book, chapterNumber + 1, selectedBibleId, MAX_PRELOAD_CHAPTERS);
+        }, BATCH_PRELOAD_DELAY);
+      } else if (loadedFromCache) {
+        console.log(`Skipping batch preload - content was loaded from cache`);
+      } else if (batchLoadingStatus.loading) {
+        console.log(`Batch loading already in progress`);
+      }
       
     } catch (error) {
       console.error(`Failed to load chapter ${chapterNumber}:`, error);
@@ -193,249 +360,81 @@ function BibleReading() {
     }
   };
 
-  // Navigate to next chapter
-  const handleNextChapter = () => {
-    if (currentChapter < totalChapters) {
-      loadChapter(selectedBook, currentChapter + 1);
-    }
-  };
-
-  // Navigate to previous chapter
-  const handlePrevChapter = () => {
-    if (currentChapter > 1) {
-      loadChapter(selectedBook, currentChapter - 1);
-    }
-  };
-
-  // Navigate to specific chapter
-  const handleGoToChapter = (chapterNumber) => {
-    if (chapterNumber >= 1 && chapterNumber <= totalChapters) {
-      loadChapter(selectedBook, chapterNumber);
-    }
-  };
-
-  // Handle reading the entire Bible from Genesis to Revelation (optimized)
-  const handleReadEntireBible = async () => {
-    setLoading(true);
-    setBookContent('');
-    setSelectedBook({ name: 'The Holy Bible', id: 'ENTIRE_BIBLE' });
-    setError('');
+  // Navigation protection to enforce API rate limits
+  const canNavigate = () => {
+    const now = Date.now();
+    const timeSinceLastNavigation = now - lastNavigationTime;
     
-    try {
-      // Add Bible header immediately
-      let initialContent = `
-        <div class="bible-header" style="text-align: center; margin-bottom: 40px; padding: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 15px;">
-          <h1 style="margin: 0 0 10px 0; font-size: 2.5em;">The Holy Bible</h1>
-          <p style="margin: 0; font-size: 1.2em; opacity: 0.9;">From Genesis to Revelation</p>
-          <p style="margin: 10px 0 0 0; font-size: 0.9em; opacity: 0.8;">Loading books progressively for better performance...</p>
-        </div>
-      `;
-      
-      setBookContent(initialContent);
-      setLoading(false);
-      
-      // Process books in smaller batches for better user experience
-      const booksPerBatch = 3; // Process 3 books at a time
-      
-      for (let i = 0; i < availableBooks.length; i += booksPerBatch) {
-        const bookBatch = availableBooks.slice(i, i + booksPerBatch);
-        
-        // Process books in parallel within each batch
-        const bookPromises = bookBatch.map(async (book) => {
-          try {
-            // Get all chapters for the book
-            const chapters = await bibleApi.getChapters(book.id, selectedBibleId);
-            
-            let bookContent = '';
-            
-            // Add book header
-            const testament = isOldTestament(book.id) ? 'Old Testament' : 'New Testament';
-            bookContent += `
-              <div class="book-header" style="margin: 50px 0 30px 0; padding: 20px; background: ${isOldTestament(book.id) ? '#8e44ad' : '#27ae60'}; color: white; border-radius: 10px; text-align: center;">
-                <h2 style="margin: 0 0 5px 0; font-size: 2em;">${book.name}</h2>
-                <p style="margin: 0; opacity: 0.9;">${testament}</p>
-              </div>
-            `;
-            
-            // Load first few chapters immediately, then load rest progressively
-            const firstChapters = chapters.slice(0, 2);
-            const remainingChapters = chapters.slice(2);
-            
-            // Filter out non-numeric chapters (like intro) and load first chapters sequentially
-            const validFirstChapters = firstChapters.filter(chapter => 
-              chapter.number && !isNaN(chapter.number) && chapter.id !== 'intro'
-            );
-            
-            const firstChapterPromises = validFirstChapters.map(async (chapter, index) => {
-              try {
-                // Add small delay between requests to prevent rate limiting
-                if (index > 0) {
-                  await new Promise(resolve => setTimeout(resolve, 200 * index));
-                }
-                
-                const passageId = `${book.id}.${chapter.number}`;
-                const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
-                return {
-                  number: chapter.number,
-                  content: chapterData.content,
-                  success: true
-                };
-              } catch (error) {
-                console.error(`Failed to load ${book.name} chapter ${chapter.number}:`, error);
-                return {
-                  number: chapter.number,
-                  content: `<div class="chapter-error">${book.name} ${chapter.number} could not be loaded.</div>`,
-                  success: false
-                };
-              }
-            });
-            
-            const firstChapterResults = await Promise.all(firstChapterPromises);
-            firstChapterResults
-              .sort((a, b) => a.number - b.number)
-              .forEach(result => {
-                // Add proper chapter introduction
-                const chapterIntro = getChapterIntro(book.name, result.number);
-                bookContent += `
-                  <div class="chapter-container">
-                    <div class="chapter-header">
-                      <h3 class="chapter-title">${book.name} - Chapter ${result.number}</h3>
-                      ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
-                    </div>
-                    <div class="chapter-content">
-                      ${result.content}
-                    </div>
-                  </div>
-                  <div class="chapter-break"></div>
-                `;
-              });
-            
-            // Add remaining chapters (will be loaded later)
-            if (remainingChapters.length > 0) {
-              bookContent += `<div class="loading-placeholder" data-book="${book.id}" data-start-chapter="${remainingChapters[0].number}">
-                <p style="text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px; margin: 20px 0;">
-                  <em>Loading remaining chapters of ${book.name}...</em>
-                </p>
-              </div>`;
-            }
-            
-            return {
-              bookId: book.id,
-              bookName: book.name,
-              content: bookContent,
-              remainingChapters: remainingChapters,
-              success: true
-            };
-            
-          } catch (error) {
-            console.error(`Failed to load book ${book.name}:`, error);
-            return {
-              bookId: book.id,
-              bookName: book.name,
-              content: `<div class="chapter-error">The book of ${book.name} could not be loaded.</div>`,
-              remainingChapters: [],
-              success: false
-            };
-          }
-        });
-        
-        // Wait for this batch of books
-        const bookResults = await Promise.all(bookPromises);
-        
-        // Append books to content
-        let batchContent = '';
-        bookResults.forEach(result => {
-          batchContent += result.content;
-        });
-        
-        setBookContent(prev => prev + batchContent);
-        
-        // Load remaining chapters for books in this batch with proper rate limiting
-        for (const bookResult of bookResults) {
-          if (bookResult.remainingChapters.length > 0) {
-            // Load remaining chapters sequentially to prevent rate limiting
-            setTimeout(async () => {
-              try {
-                // Filter out invalid chapters
-                const validRemainingChapters = bookResult.remainingChapters.filter(chapter => 
-                  chapter.number && !isNaN(chapter.number) && chapter.id !== 'intro'
-                );
-                
-                // Load chapters sequentially instead of concurrently to prevent rate limiting
-                const chapterResults = [];
-                for (let i = 0; i < validRemainingChapters.length; i++) {
-                  const chapter = validRemainingChapters[i];
-                  
-                  try {
-                    // Add delay between each request to prevent rate limiting
-                    if (i > 0) {
-                      await new Promise(resolve => setTimeout(resolve, 500));
-                    }
-                    
-                    const passageId = `${bookResult.bookId}.${chapter.number}`;
-                    const chapterData = await bibleApi.getPassage(passageId, true, selectedBibleId);
-                    chapterResults.push({
-                      number: chapter.number,
-                      content: chapterData.content
-                    });
-                  } catch (error) {
-                    console.error(`Failed to load ${bookResult.bookName} chapter ${chapter.number}:`, error);
-                    chapterResults.push({
-                      number: chapter.number,
-                      content: `<div class="chapter-error">${bookResult.bookName} ${chapter.number} could not be loaded. <button onclick="window.location.reload()">Retry</button></div>`
-                    });
-                  }
-                }
-                
-                let chaptersContent = '';
-                chapterResults
-                  .sort((a, b) => a.number - b.number)
-                  .forEach(result => {
-                    // Add proper chapter introduction
-                    const chapterIntro = getChapterIntro(bookResult.bookName, result.number);
-                    chaptersContent += `
-                      <div class="chapter-container">
-                        <div class="chapter-header">
-                          <h3 class="chapter-title">${bookResult.bookName} - Chapter ${result.number}</h3>
-                          ${chapterIntro ? `<div class="chapter-intro">${chapterIntro}</div>` : ''}
-                        </div>
-                        <div class="chapter-content">
-                          ${result.content}
-                        </div>
-                      </div>
-                      <div class="chapter-break"></div>
-                    `;
-                  });
-                
-                // Replace loading placeholder
-                setBookContent(prev => {
-                  const placeholder = `<div class="loading-placeholder" data-book="${bookResult.bookId}" data-start-chapter="${bookResult.remainingChapters[0].number}">
-                <p style="text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px; margin: 20px 0;">
-                  <em>Loading remaining chapters of ${bookResult.bookName}...</em>
-                </p>
-              </div>`;
-                  return prev.replace(placeholder, chaptersContent);
-                });
-                
-              } catch (error) {
-                console.error(`Failed to load remaining chapters for ${bookResult.bookName}:`, error);
-              }
-            }, 1000 + (i * 500)); // Stagger the loading
-          }
-        }
-        
-        // Small delay between book batches to prevent API overwhelming
-        if (i + booksPerBatch < availableBooks.length) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-      }
-      
-    } catch (error) {
-      console.error('Failed to load entire Bible:', error);
-      setError('Failed to load the entire Bible. Please try selecting individual books instead.');
-      setLoading(false);
+    // Prevent navigation if within API rate limit cooldown
+    if (timeSinceLastNavigation < API_RATE_LIMIT_COOLDOWN) {
+      const remainingCooldown = Math.ceil((API_RATE_LIMIT_COOLDOWN - timeSinceLastNavigation) / 1000);
+      console.log(`Navigation blocked - API cooldown: ${remainingCooldown}s remaining`);
+      return false;
     }
+    
+    // Prevent navigation if currently loading
+    if (loading) {
+      console.log('Navigation blocked - currently loading');
+      return false;
+    }
+    
+    return true;
   };
+
+  // Start navigation cooldown with countdown timer
+  const startNavigationCooldown = () => {
+    const API_COOLDOWN_MS = 6000;
+    const cooldownSeconds = Math.ceil(API_COOLDOWN_MS / 1000);
+    
+    setNavigationCooldown(true);
+    setLastNavigationTime(Date.now());
+    setCooldownRemaining(cooldownSeconds);
+    
+    const countdownInterval = setInterval(() => {
+      setCooldownRemaining(prev => {
+        if (prev <= 1) {
+          clearInterval(countdownInterval);
+          setNavigationCooldown(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  // Navigate to next chapter with API rate limit enforcement
+  const handleNextChapter = () => {
+    if (!canNavigate() || currentChapter >= totalChapters) return;
+    
+    startNavigationCooldown();
+    loadChapter(selectedBook, currentChapter + 1);
+  };
+
+  // Navigate to previous chapter with API rate limit enforcement
+  const handlePrevChapter = () => {
+    if (!canNavigate() || currentChapter <= 1) return;
+    
+    startNavigationCooldown();
+    loadChapter(selectedBook, currentChapter - 1);
+  };
+  
+  // Clear cache when switching books
+  const clearChapterCache = () => {
+    setChapterCache(new Map());
+    setBatchLoadingStatus({ loading: false, count: 0 }); // Reset batch loading
+    setNavigationCooldown(false); // Reset navigation cooldown
+    setLastNavigationTime(0); // Reset navigation timing
+  };
+
+  // Navigate to specific chapter with API rate limit enforcement
+  const handleGoToChapter = (chapterNumber) => {
+    if (!canNavigate() || chapterNumber < 1 || chapterNumber > totalChapters || chapterNumber === currentChapter) return;
+    
+    startNavigationCooldown();
+    loadChapter(selectedBook, chapterNumber);
+  };
+
+
 
   if (loadingBibles) {
     return (
@@ -597,6 +596,7 @@ function BibleReading() {
                 setChapterContent('');
                 setCurrentChapter(1);
                 setTotalChapters(0);
+                clearChapterCache();
               }}
               className="btn"
               style={{marginBottom: '15px'}}
@@ -632,22 +632,43 @@ function BibleReading() {
                 </div>
                 
                 {/* Chapter Selector */}
-                <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                  <label style={{fontSize: '14px', color: '#666'}}>Jump to:</label>
-                  <select 
-                    value={currentChapter} 
-                    onChange={(e) => handleGoToChapter(parseInt(e.target.value))}
-                    style={{
-                      padding: '5px 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #ddd',
-                      fontSize: '14px'
-                    }}
-                  >
-                    {Array.from({length: totalChapters}, (_, i) => (
-                      <option key={i + 1} value={i + 1}>Chapter {i + 1}</option>
-                    ))}
-                  </select>
+                <div style={{display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px'}}>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                    <label style={{fontSize: '14px', color: '#2c3e50', fontWeight: '500'}}>Jump to:</label>
+                    <select 
+                      value={currentChapter} 
+                      onChange={(e) => handleGoToChapter(parseInt(e.target.value))}
+                      disabled={navigationCooldown || loading}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #3498db',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        color: '#2c3e50',
+                        backgroundColor: 'white',
+                        cursor: (navigationCooldown || loading) ? 'not-allowed' : 'pointer',
+                        outline: 'none',
+                        transition: 'all 0.3s ease',
+                        minWidth: '120px',
+                        opacity: (navigationCooldown || loading) ? 0.6 : 1
+                      }}
+                    >
+                      {Array.from({length: totalChapters}, (_, i) => (
+                        <option key={i + 1} value={i + 1}>Chapter {i + 1}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {navigationCooldown && cooldownRemaining > 0 && (
+                    <div style={{
+                      fontSize: '12px',
+                      color: '#e74c3c',
+                      fontWeight: '500',
+                      textAlign: 'right'
+                    }}>
+                      ⏳ Wait {cooldownRemaining}s
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -731,6 +752,37 @@ function BibleReading() {
                 />
               </div>
               
+              {/* API Rate Limit Notice */}
+              {navigationCooldown && cooldownRemaining > 0 && (
+                <div style={{
+                  backgroundColor: '#fff5f5',
+                  padding: '15px',
+                  borderRadius: '12px',
+                  border: '2px solid #fed7d7',
+                  textAlign: 'center',
+                  marginBottom: '20px'
+                }}>
+                  <h4 style={{
+                    margin: '0 0 8px 0',
+                    color: '#e74c3c',
+                    fontSize: '16px'
+                  }}>
+                    ⏱️ API Rate Limit Protection Active
+                  </h4>
+                  <p style={{
+                    margin: '0',
+                    color: '#c53030',
+                    fontSize: '14px'
+                  }}>
+                    Next chapter available in <strong>{cooldownRemaining} seconds</strong>
+                    <br />
+                    <span style={{ fontSize: '12px', fontStyle: 'italic' }}>
+                      This prevents API overload and ensures reliable service for everyone
+                    </span>
+                  </p>
+                </div>
+              )}
+
               {/* Navigation Buttons */}
               <div style={{
                 backgroundColor: 'white',
@@ -745,23 +797,25 @@ function BibleReading() {
               }}>
                 <button
                   onClick={handlePrevChapter}
-                  disabled={currentChapter <= 1}
+                  disabled={currentChapter <= 1 || navigationCooldown || loading}
+                  title={navigationCooldown && cooldownRemaining > 0 ? `Wait ${cooldownRemaining}s - API Rate Limit` : ''}
                   style={{
                     padding: '12px 24px',
-                    backgroundColor: currentChapter <= 1 ? '#e9ecef' : '#6c757d',
-                    color: currentChapter <= 1 ? '#6c757d' : 'white',
+                    backgroundColor: (currentChapter <= 1 || navigationCooldown || loading) ? '#e9ecef' : '#6c757d',
+                    color: (currentChapter <= 1 || navigationCooldown || loading) ? '#6c757d' : 'white',
                     border: 'none',
                     borderRadius: '25px',
-                    cursor: currentChapter <= 1 ? 'not-allowed' : 'pointer',
+                    cursor: (currentChapter <= 1 || navigationCooldown || loading) ? 'not-allowed' : 'pointer',
                     fontSize: '16px',
                     fontWeight: 'bold',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
-                    transition: 'all 0.3s ease'
+                    transition: 'all 0.3s ease',
+                    opacity: navigationCooldown ? 0.6 : 1
                   }}
                 >
-                  ← Previous Chapter
+                  {navigationCooldown && cooldownRemaining > 0 ? `⏳ ${cooldownRemaining}s` : '← Previous Chapter'}
                 </button>
                 
                 <div style={{
@@ -773,26 +827,93 @@ function BibleReading() {
                   {selectedBook.name} - Chapter {currentChapter}
                 </div>
                 
-                <button
-                  onClick={handleNextChapter}
-                  disabled={currentChapter >= totalChapters}
-                  style={{
-                    padding: '12px 24px',
-                    backgroundColor: currentChapter >= totalChapters ? '#e9ecef' : '#28a745',
-                    color: currentChapter >= totalChapters ? '#6c757d' : 'white',
-                    border: 'none',
-                    borderRadius: '25px',
-                    cursor: currentChapter >= totalChapters ? 'not-allowed' : 'pointer',
-                    fontSize: '16px',
-                    fontWeight: 'bold',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    transition: 'all 0.3s ease'
-                  }}
-                >
-                  Next Chapter →
-                </button>
+                <div style={{display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px'}}>
+                  <button
+                    onClick={handleNextChapter}
+                    disabled={currentChapter >= totalChapters || navigationCooldown || loading}
+                    title={navigationCooldown && cooldownRemaining > 0 ? `Wait ${cooldownRemaining}s - API Rate Limit` : ''}
+                    style={{
+                      padding: '12px 24px',
+                      backgroundColor: (currentChapter >= totalChapters || navigationCooldown || loading) ? '#e9ecef' : '#28a745',
+                      color: (currentChapter >= totalChapters || navigationCooldown || loading) ? '#6c757d' : 'white',
+                      border: 'none',
+                      borderRadius: '25px',
+                      cursor: (currentChapter >= totalChapters || navigationCooldown || loading) ? 'not-allowed' : 'pointer',
+                      fontSize: '16px',
+                      fontWeight: 'bold',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      transition: 'all 0.3s ease',
+                      opacity: navigationCooldown ? 0.6 : 1
+                    }}
+                  >
+                    {navigationCooldown && cooldownRemaining > 0 ? `Next Chapter ⏳ ${cooldownRemaining}s` : 'Next Chapter →'}
+                  </button>
+                  
+                  {/* Batch Loading Status Indicator */}
+                  {batchLoadingStatus.loading && (
+                    <div style={{
+                      fontSize: '12px',
+                      color: '#28a745',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      fontStyle: 'italic'
+                    }}>
+                      <div style={{
+                        width: '12px',
+                        height: '12px',
+                        border: '2px solid #f3f3f3',
+                        borderTop: '2px solid #28a745',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                      }}></div>
+                      Preloading chapters ({batchLoadingStatus.count}/3)...
+                    </div>
+                  )}
+                  
+                  {/* API Rate Limit Cooldown Indicator */}
+                  {navigationCooldown && cooldownRemaining > 0 && (
+                    <div style={{
+                      fontSize: '14px',
+                      color: '#e74c3c',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontWeight: 'bold',
+                      padding: '8px 12px',
+                      backgroundColor: '#fff5f5',
+                      borderRadius: '6px',
+                      border: '1px solid #fed7d7'
+                    }}>
+                      <div style={{
+                        width: '16px',
+                        height: '16px',
+                        border: '2px solid #f3f3f3',
+                        borderTop: '2px solid #e74c3c',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                      }}></div>
+                      API Cooldown: {cooldownRemaining}s remaining
+                    </div>
+                  )}
+                  
+                  {/* Cached Status Indicator */}
+                  {!batchLoadingStatus.loading && !navigationCooldown && currentChapter < totalChapters && 
+                   chapterCache.has(getCacheKey(selectedBook, currentChapter + 1, selectedBibleId)) && (
+                    <div style={{
+                      fontSize: '12px',
+                      color: '#28a745',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      fontStyle: 'italic'
+                    }}>
+                      ✓ Next chapters ready ({Math.min(3, totalChapters - currentChapter)} cached)
+                    </div>
+                  )}
+                </div>
               </div>
             </>
           )}

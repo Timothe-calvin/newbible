@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import bibleApi from '../services/bibleApi';
+import preloadService from '../services/preloadService';
 
 function ScriptureLookup() {
   const [query, setQuery] = useState('');
@@ -59,7 +60,16 @@ function ScriptureLookup() {
     const trimmedQuery = searchQuery.trim();
     if (!trimmedQuery) return;
 
-    // Check cache first for faster results
+    // Check preload service cache first
+    const preloadedResults = preloadService.getCached('search', `${trimmedQuery}-${searchType}`, selectedBibleId);
+    if (preloadedResults && !immediate) {
+      console.log('🔍 Returning preloaded search results');
+      setResults(preloadedResults.results || []);
+      setError('');
+      return;
+    }
+
+    // Check local cache for faster results
     const cacheKey = `${selectedBibleId}-${trimmedQuery}-${searchType}`;
     if (searchCache.has(cacheKey) && !immediate) {
       console.log('🔍 Returning cached search results');

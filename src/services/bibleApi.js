@@ -12,17 +12,21 @@ class BibleApiService {
     this.isConfigured = !!(this.apiKey && this.baseUrl && this.defaultBibleId);
     
     // Enhanced caching with TTL
-    this.biblesCache = apiUtils.createCache(30 * 60 * 1000); // 30 minutes
-    this.englishBiblesCache = apiUtils.createCache(60 * 60 * 1000); // 1 hour
-    this.booksCache = apiUtils.createCache(10 * 60 * 1000); // 10 minutes
-    this.passageCache = apiUtils.createCache(5 * 60 * 1000); // 5 minutes
-    this.searchCache = apiUtils.createCache(2 * 60 * 1000); // 2 minutes
+    this.biblesCache = apiUtils.createCache(60 * 60 * 1000); // 1 hour
+    this.englishBiblesCache = apiUtils.createCache(2 * 60 * 60 * 1000); // 2 hours
+    this.booksCache = apiUtils.createCache(30 * 60 * 1000); // 30 minutes
+    this.passageCache = apiUtils.createCache(15 * 60 * 1000); // 15 minutes
+    this.searchCache = apiUtils.createCache(5 * 60 * 1000); // 5 minutes
     
     // Performance monitoring
     this.performanceMonitor = apiUtils.createPerformanceMonitor();
     
-    // Rate limiting - very conservative to prevent overwhelming the API
+    // GLOBAL RATE LIMITING & QUEUE SYSTEM
     this.rateLimiter = apiUtils.createRateLimiter(3, 60000); // 3 requests per minute
+    this.requestQueue = [];
+    this.isProcessingQueue = false;
+    this.lastRequestTime = 0;
+    this.globalCooldownUntil = 0;
     
     if (!this.isConfigured) {
       console.warn('Bible API not fully configured. Missing:', {
@@ -43,6 +47,101 @@ class BibleApiService {
       
       throw new Error(`Bible API not configured. Missing: ${missing.join(', ')}`);
     }
+  }
+
+  // Global API request queue to prevent rate limiting
+  async queueRequest(requestFunction, priority = 'normal') {
+    return new Promise((resolve, reject) => {
+      const request = {
+        id: Date.now() + Math.random(),
+        function: requestFunction,
+        priority: priority,
+        resolve: resolve,
+        reject: reject,
+        timestamp: Date.now()
+      };
+
+      // Add to appropriate position in queue based on priority
+      if (priority === 'high') {
+        this.requestQueue.unshift(request);
+      } else {
+        this.requestQueue.push(request);
+      }
+
+      console.log(`📋 Queued API request (${priority} priority). Queue size: ${this.requestQueue.length}`);
+      
+      // Start processing if not already running
+      if (!this.isProcessingQueue) {
+        this.processQueue();
+      }
+    });
+  }
+
+  // Process the request queue with proper rate limiting
+  async processQueue() {
+    if (this.isProcessingQueue) return;
+    
+    this.isProcessingQueue = true;
+    console.log(`🔄 Starting queue processing. ${this.requestQueue.length} requests pending`);
+
+    while (this.requestQueue.length > 0) {
+      const now = Date.now();
+      
+      // Check if we're in a global cooldown period
+      if (now < this.globalCooldownUntil) {
+        const waitTime = this.globalCooldownUntil - now;
+        console.log(`⏳ Global cooldown active. Waiting ${Math.ceil(waitTime/1000)}s...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+
+      // Ensure 6 seconds between requests for faster loading
+      const timeSinceLastRequest = now - this.lastRequestTime;
+      if (timeSinceLastRequest < 6000) {
+        const waitTime = 6000 - timeSinceLastRequest;
+        console.log(`⏱️ Rate limiting: waiting ${Math.ceil(waitTime/1000)}s before next request`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+
+      // Process next request
+      const request = this.requestQueue.shift();
+      if (!request) continue;
+
+      try {
+        console.log(`🚀 Processing API request ${request.id}`);
+        this.lastRequestTime = Date.now();
+        
+        const result = await request.function();
+        request.resolve(result);
+        
+        console.log(`✅ API request ${request.id} completed successfully`);
+        
+      } catch (error) {
+        console.error(`❌ API request ${request.id} failed:`, error);
+        
+        // If rate limited, set global cooldown
+        if (error.message && error.message.includes('Rate limit')) {
+          const waitMatch = error.message.match(/Wait (\d+)ms/);
+          if (waitMatch) {
+            const waitTime = parseInt(waitMatch[1]);
+            this.globalCooldownUntil = Date.now() + waitTime;
+            console.log(`🚫 Rate limited! Setting global cooldown for ${Math.ceil(waitTime/1000)}s`);
+          } else {
+            // Default 60-second cooldown if no specific time given
+            this.globalCooldownUntil = Date.now() + 60000;
+            console.log(`🚫 Rate limited! Setting default 60s global cooldown`);
+          }
+        }
+        
+        request.reject(error);
+      }
+
+      // Small buffer between successful requests
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
+    this.isProcessingQueue = false;
+    console.log(`✨ Queue processing completed`);
   }
 
   // Get all available Bible versions
@@ -153,7 +252,7 @@ class BibleApiService {
   }
 
   // Fetch a specific verse or passage (with optional Bible version and retry logic)
-  async getPassage(passageId, includeVerseNumbers = true, bibleId = null, retryCount = 0) {
+  async getPassage(passageId, includeVerseNumbers = true, bibleId = null, priority = 'normal') {
     this.checkConfiguration();
     
     const selectedBibleId = bibleId || this.defaultBibleId;
@@ -166,11 +265,11 @@ class BibleApiService {
       return cached;
     }
 
-    const timer = this.performanceMonitor.start('getPassage');
+    // Queue the API request to prevent rate limiting
+    return this.queueRequest(async () => {
+      const timer = this.performanceMonitor.start('getPassage');
 
-    try {
-      // Check rate limiting
-      await this.rateLimiter.checkLimit();
+      try {
       
       const url = `${this.baseUrl}/bibles/${selectedBibleId}/passages/${passageId}${includeVerseNumbers ? '?include-verse-numbers=true' : ''}`;
       
@@ -182,26 +281,12 @@ class BibleApiService {
       monitor.end();
 
       if (!response.ok) {
-        // Handle specific HTTP status codes
-        if (response.status === 429 && retryCount < 3) {
-          // Rate limited, wait and retry
-          const waitTime = Math.pow(2, retryCount) * 1000; // Exponential backoff
-          console.log(`Rate limited, retrying ${passageId} in ${waitTime}ms...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-          return this.getPassage(passageId, includeVerseNumbers, bibleId, retryCount + 1);
-        }
-        
         if (response.status === 404) {
           throw new Error(`Passage not found: ${passageId}`);
         }
-        
-        if (response.status >= 500 && retryCount < 2) {
-          // Server error, retry
-          console.log(`Server error for ${passageId}, retrying...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          return this.getPassage(passageId, includeVerseNumbers, bibleId, retryCount + 1);
+        if (response.status === 429) {
+          throw new Error(`Rate limit exceeded. Wait before making more requests.`);
         }
-        
         throw new Error(`Failed to fetch passage: ${response.status}`);
       }
 
@@ -216,20 +301,13 @@ class BibleApiService {
       // Cache the result with longer TTL for successful requests
       this.passageCache.set(cacheKey, result);
       
-      console.log(`📖 Fetched passage ${passageId} in ${timer.end()}ms`);
-      return result;
-    } catch (error) {
-      console.error(`Error fetching passage ${passageId}:`, error);
-      
-      // For network errors, try one more time if we haven't already
-      if (retryCount === 0 && (error.name === 'NetworkError' || error.name === 'TypeError')) {
-        console.log(`Network error for ${passageId}, retrying once...`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return this.getPassage(passageId, includeVerseNumbers, bibleId, 1);
+        console.log(`📖 Fetched passage ${passageId} in ${timer.end()}ms`);
+        return result;
+      } catch (error) {
+        console.error(`Error fetching passage ${passageId}:`, error);
+        throw error;
       }
-      
-      throw error;
-    }
+    }, priority);
   }
 
   // Search for verses by keywords (with optional Bible version)

@@ -6,13 +6,15 @@ function Navbar() {
   const location = useLocation();
 
   const navLinks = [
-    { path: '/', name: 'Home' },
-    { path: '/10-commandments', name: '10 Commandments' },
-    { path: '/scripture-lookup', name: 'Scripture Lookup' },
-    { path: '/bible-reading', name: 'Bible Reading' },
-    { path: '/facts', name: 'Facts' },
-    { path: '/chatbot', name: 'AI Chatbot' }
+    { path: '/', name: 'Home', preloadKey: 'home' },
+    { path: '/10-commandments', name: '10 Commandments', preloadKey: '10-commandments' },
+    { path: '/scripture-lookup', name: 'Scripture Lookup', preloadKey: 'scripture-lookup' },
+    { path: '/bible-reading', name: 'Bible Reading', preloadKey: 'bible-reading' },
+    { path: '/facts', name: 'Facts', preloadKey: 'facts' },
+    { path: '/chatbot', name: 'AI Chatbot', preloadKey: 'chatbot' }
   ];
+
+  // Hover preloading disabled to prevent rate limiting
 
   return (
     <nav className="navbar">

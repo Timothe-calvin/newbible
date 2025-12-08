@@ -164,15 +164,21 @@ class BibleApiService {
       
       const monitor = this.performanceMonitor.start('api-call');
       const response = await apiUtils.apiCall(`${this.baseUrl}/bibles`, {
-        headers: this.getHeaders()
+        headers: this.getHeaders(),
+        timeout: 15000
       });
       monitor.end();
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch available Bibles: ${response.status}`);
+        const errorText = await response.text().catch(() => 'Unknown error');
+        console.error(`Bible API error (${response.status}):`, errorText);
+        throw new Error(`Failed to fetch available Bibles: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
+      if (!data || !data.data) {
+        throw new Error('Invalid response format from Bible API');
+      }
       const bibles = data.data || [];
       
       // Cache the result
@@ -276,25 +282,33 @@ class BibleApiService {
       const monitor = this.performanceMonitor.start('api-call');
       const response = await apiUtils.apiCall(url, {
         headers: this.getHeaders(),
-        timeout: 10000 // 10 second timeout
+        timeout: 15000 // 15 second timeout
       });
       monitor.end();
 
       if (!response.ok) {
         if (response.status === 404) {
-          throw new Error(`Passage not found: ${passageId}`);
+          throw new Error(`Passage not found: ${passageId}. Please verify the reference.`);
         }
         if (response.status === 429) {
-          throw new Error(`Rate limit exceeded. Wait before making more requests.`);
+          const retryAfter = response.headers.get('Retry-After') || '60';
+          throw new Error(`Rate limit exceeded. Please wait ${retryAfter} seconds before trying again.`);
         }
-        throw new Error(`Failed to fetch passage: ${response.status}`);
+        if (response.status === 401) {
+          throw new Error(`Bible API authentication failed. Please check your API key.`);
+        }
+        const errorText = await response.text().catch(() => 'Unknown error');
+        throw new Error(`Failed to fetch passage: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
+      if (!data || !data.data) {
+        throw new Error(`Invalid response format for passage: ${passageId}`);
+      }
       const result = {
-        reference: data.data.reference,
-        content: data.data.content,
-        copyright: data.data.copyright,
+        reference: data.data.reference || passageId,
+        content: data.data.content || 'Content not available',
+        copyright: data.data.copyright || '',
         bibleId: selectedBibleId
       };
       

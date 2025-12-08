@@ -186,15 +186,37 @@ Use the provided relevant verses to strengthen your response, weaving them natur
           'X-Title': 'Bible Study App - AI Assistant'
         },
         body: requestBody
-      }, 30000, 2); // 30 second timeout, 2 retries
+      }, 45000, 2); // 45 second timeout for AI responses, 2 retries
       monitor.end();
 
       if (!response.ok) {
-        throw new Error(`OpenRouter API request failed: ${response.status}`);
+        const errorText = await response.text().catch(() => 'Unknown error');
+        console.error(`OpenRouter API error (${response.status}):`, errorText);
+        
+        if (response.status === 401) {
+          throw new Error('AI service authentication failed. Please check your API key.');
+        }
+        if (response.status === 429) {
+          throw new Error('AI service rate limit exceeded. Please try again in a moment.');
+        }
+        if (response.status === 503) {
+          throw new Error('AI service is temporarily unavailable. Please try again shortly.');
+        }
+        throw new Error(`AI service request failed: ${response.status} - ${errorText.substring(0, 100)}`);
       }
 
       const data = await response.json();
-      const aiResponse = data.choices[0]?.message?.content || "I'm sorry, I couldn't generate a response.";
+      
+      if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+        console.error('Invalid AI response format:', data);
+        throw new Error('Received invalid response format from AI service');
+      }
+      
+      const aiResponse = data.choices[0]?.message?.content;
+      
+      if (!aiResponse || aiResponse.trim().length === 0) {
+        throw new Error('AI service returned an empty response');
+      }
 
       const result = {
         response: aiResponse,
@@ -211,7 +233,18 @@ Use the provided relevant verses to strengthen your response, weaving them natur
 
     } catch (error) {
       console.error('Enhanced AI Service error:', error);
-      throw error;
+      
+      // Provide user-friendly error messages
+      let userMessage = error.message;
+      if (error.message.includes('fetch') || error.message.includes('network')) {
+        userMessage = 'Network connection issue. Please check your internet connection and try again.';
+      } else if (error.message.includes('timeout')) {
+        userMessage = 'The request took too long. Please try again with a shorter question.';
+      } else if (error.message.includes('authentication') || error.message.includes('API key')) {
+        userMessage = 'AI service configuration issue. Please contact support.';
+      }
+      
+      throw new Error(userMessage);
     }
   }
 

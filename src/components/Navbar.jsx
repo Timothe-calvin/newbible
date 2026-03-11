@@ -10,6 +10,7 @@ function Navbar() {
     { path: '/10-commandments', name: '10 Commandments', preloadKey: '10-commandments' },
     { path: '/scripture-lookup', name: 'Scripture Lookup', preloadKey: 'scripture-lookup' },
     { path: '/bible-reading', name: 'Bible Reading', preloadKey: 'bible-reading' },
+    { path: '/biblical-holidays', name: 'Biblical Holidays', preloadKey: 'biblical-holidays' },
     { path: '/facts', name: 'Facts', preloadKey: 'facts' },
     { path: '/chatbot', name: 'AI Chatbot', preloadKey: 'chatbot' }
   ];
@@ -20,7 +21,6 @@ function Navbar() {
     <nav className="navbar">
       <div className="nav-container">
         <Link to="/" className="nav-logo">
-          <img src="/dove.svg" alt="Dove" style={{width: '32px', height: '32px', marginRight: '8px'}} />
           Bible Website
         </Link>
         
@@ -51,7 +51,7 @@ function Navbar() {
               marginLeft: '10px'
             }}
           >
-            💝 Donate
+            Donate
           </a>
         </div>
 

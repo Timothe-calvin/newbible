@@ -9,11 +9,11 @@
 
 /* Global text color fixes */
 li, ul, ol {
-  color: #2c3e50;
+  color: var(--color-text);
 }
 
 li p, ul p, ol p {
-  color: #2c3e50 !important;
+  color: var(--color-text) !important;
 }
 
 .main-content {
@@ -25,9 +25,25 @@ li p, ul p, ol p {
   overflow-x: hidden;
 }
 
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 12px;
+  background: #1f2933;
+  color: #ffffff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  text-decoration: none;
+  z-index: 1100;
+}
+
+.skip-link:focus {
+  top: 12px;
+}
+
 /* Navigation */
 .navbar {
-  background: #fff;
+  background: var(--color-surface);
   box-shadow: 0 2px 10px rgba(0,0,0,0.1);
   position: sticky;
   top: 0;
@@ -48,7 +64,7 @@ li p, ul p, ol p {
 .nav-logo {
   font-size: 1.5rem;
   font-weight: bold;
-  color: #2c3e50;
+  color: var(--color-text);
   text-decoration: none;
 }
 
@@ -61,7 +77,7 @@ li p, ul p, ol p {
 }
 
 .nav-link {
-  color: #555;
+  color: var(--color-muted);
   text-decoration: none;
   font-weight: 500;
   padding: 10px 15px;
@@ -71,8 +87,8 @@ li p, ul p, ol p {
 
 .nav-link:hover,
 .nav-link.active {
-  background: #3498db;
-  color: white;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
 }
 
 .nav-toggle {
@@ -84,7 +100,7 @@ li p, ul p, ol p {
 .bar {
   width: 25px;
   height: 3px;
-  background: #2c3e50;
+  background: var(--color-text);
   margin: 3px 0;
   transition: 0.3s;
 }
@@ -99,7 +115,7 @@ li p, ul p, ol p {
 }
 
 .page h1 {
-  color: #2c3e50;
+  color: var(--color-text);
   margin-bottom: 10px;
   font-size: 2.5rem;
   display: flex;
@@ -108,9 +124,143 @@ li p, ul p, ol p {
 }
 
 .page p {
-  color: #666;
+  color: var(--color-muted);
   font-size: 1.1rem;
   margin-bottom: 30px;
+  line-height: 1.6;
+}
+
+/* Accessibility Panel */
+.a11y-toggle {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  background: #ffffff;
+  color: #2c3e50;
+  border: 1px solid #d1d8e0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-weight: 600;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+  z-index: 1200;
+}
+
+.a11y-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 68px;
+  width: 260px;
+  background: #ffffff;
+  color: #2c3e50;
+  border-radius: 14px;
+  border: 1px solid #d1d8e0;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.2);
+  padding: 14px;
+  display: none;
+  z-index: 1200;
+}
+
+.a11y-panel.open {
+  display: block;
+}
+
+.a11y-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.a11y-close {
+  background: transparent;
+  border: none;
+  color: #2c3e50;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.a11y-field,
+.a11y-check {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+
+.a11y-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.a11y-panel select {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #d1d8e0;
+  font-size: 0.9rem;
+}
+
+/* Biblical Holidays */
+.holiday-spotlight {
+  background: var(--color-surface);
+  border: 2px solid var(--color-accent);
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+  padding: 24px;
+  margin-bottom: 30px;
+}
+
+.holiday-badge {
+  display: inline-block;
+  background: var(--color-accent);
+  color: var(--color-text);
+  font-weight: bold;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+
+.holiday-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+}
+
+.holiday-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+  padding: 20px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.holiday-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+}
+
+.holiday-card.active {
+  border: 2px solid var(--color-accent);
+}
+
+.holiday-date {
+  color: var(--color-primary);
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.holiday-description {
+  color: var(--color-muted);
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.holiday-scripture {
+  color: var(--color-text);
+  font-weight: 600;
 }
 
 /* Hero Section */
@@ -149,7 +299,7 @@ li p, ul p, ol p {
 }
 
 .card {
-  background: white;
+  background: var(--color-surface);
   padding: 30px;
   border-radius: 15px;
   box-shadow: 0 5px 20px rgba(0,0,0,0.1);
@@ -161,27 +311,27 @@ li p, ul p, ol p {
 }
 
 .card h3 {
-  color: #2c3e50;
+  color: var(--color-text);
   margin-bottom: 15px;
   font-size: 1.3rem;
 }
 
 .card p {
-  color: #666;
+  color: var(--color-muted);
   line-height: 1.6;
   margin-bottom: 15px;
 }
 
 .verse {
-  color: #3498db;
+  color: var(--color-primary);
   font-weight: bold;
   font-style: italic;
 }
 
 /* Buttons */
 .btn {
-  background: #3498db;
-  color: white;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
   padding: 12px 25px;
   border: none;
   border-radius: 8px;
@@ -193,7 +343,7 @@ li p, ul p, ol p {
 }
 
 .btn:hover {
-  background: #2980b9;
+  background: var(--color-link-hover);
 }
 
 .action-buttons {
@@ -1086,4 +1236,91 @@ button:active:not(:disabled) {
 @keyframes shimmer {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(300%); }
+}
+
+/* Ten Commandments Styles */
+.subtitle {
+  text-align: center;
+  color: #666;
+  font-size: 1.1rem;
+  margin-bottom: 40px;
+}
+
+.commandments-container {
+  display: grid;
+  gap: 25px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.commandment-card {
+  background: white;
+  border-radius: 12px;
+  padding: 25px;
+  box-shadow: 0 3px 15px rgba(0,0,0,0.1);
+  border-left: 5px solid #3498db;
+  display: flex;
+  gap: 20px;
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+
+.commandment-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 5px 20px rgba(52, 152, 219, 0.2);
+}
+
+.commandment-number {
+  background: #3498db;
+  color: white;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.commandment-content {
+  flex: 1;
+}
+
+.commandment-title {
+  color: #2c3e50;
+  font-size: 1.3rem;
+  margin: 0 0 12px 0;
+  font-weight: 600;
+}
+
+.commandment-text {
+  color: #34495e;
+  line-height: 1.7;
+  font-size: 1rem;
+  margin: 0 0 10px 0;
+}
+
+.commandment-reference {
+  color: #3498db;
+  font-size: 0.9rem;
+  font-style: italic;
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .commandment-card {
+    flex-direction: column;
+    padding: 20px;
+  }
+  
+  .commandment-number {
+    width: 45px;
+    height: 45px;
+    font-size: 20px;
+  }
+  
+  .commandment-title {
+    font-size: 1.1rem;
+  }
 }

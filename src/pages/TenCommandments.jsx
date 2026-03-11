@@ -1,174 +1,230 @@
-import React, { useState, useEffect } from 'react';
-import bibleApi from '../services/bibleApi';
+import React from "react";
 
+/**
+ * TEN COMMANDMENTS COMPONENT
+ * Features: 
+ * - Full Biblical Text (Exodus 20)
+ * - Text-based explanations (Unbiased/Linguistic)
+ * - "Print to PDF" functionality
+ * - Optimized for 8.5" x 11" paper printing
+ */
 function TenCommandments() {
-  const [commandmentsData, setCommandmentsData] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  const commandmentsList = [
+  const commandments = [
     {
       number: 1,
-      title: "No other gods",
-      text: "And God spoke all these words: 'I am the LORD your God, who brought you out of Egypt, out of the land of slavery. You shall have no other gods before me.'"
+      title: "No Other Gods",
+      text: "I am the LORD your God... You shall have no other gods before Me.",
+      reference: "Exodus 20:2-3",
+      explanation: "Establishes exclusive loyalty. It forbids placing anything—wealth, power, or other spiritual entities—above the Creator.",
     },
     {
       number: 2,
-      title: "No idols",
-      text: "You shall not make for yourself an image in the form of anything in heaven above or on the earth beneath or in the waters below. You shall not bow down to them or worship them; for I, the LORD your God, am a jealous God, punishing the children for the sin of the parents to the third and fourth generation of those who hate me, but showing love to a thousand generations of those who love me and keep my commandments."
+      title: "No Idols",
+      text: "You shall not make for yourself an image... You shall not bow down to them or worship them.",
+      reference: "Exodus 20:4-5",
+      explanation: "Prohibits representing the Divine through physical objects. Emphasizes that God is spirit and cannot be captured in man-made images.",
     },
     {
       number: 3,
-      title: "Do not misuse God's name",
-      text: "You shall not misuse the name of the LORD your God, for the LORD will not hold anyone guiltless who misuses his name."
+      title: "No Misuse of God's Name",
+      text: "You shall not misuse the name of the LORD your God.",
+      reference: "Exodus 20:7",
+      explanation: "Refers to using God's name for deceptive purposes, such as swearing false oaths or claiming divine authority for selfish agendas.",
     },
     {
       number: 4,
       title: "Remember the Sabbath",
-      text: "Remember the Sabbath day by keeping it holy. Six days you shall labor and do all your work, but the seventh day is a sabbath to the LORD your God. On it you shall not do any work, neither you, nor your son or daughter, nor your male or female servant, nor your animals, nor any foreigner residing in your towns. For in six days the LORD made the heavens and the earth, the sea, and all that is in them, but he rested on the seventh day. Therefore the LORD blessed the Sabbath day and made it holy."
+      text: "Remember the Sabbath day by keeping it holy. Six days you shall labor... but the seventh day is a sabbath.",
+      reference: "Exodus 20:8-10",
+      explanation: "A mandate for rhythmic rest. It requires a cessation of creative labor every seven days to focus on spiritual restoration.",
     },
     {
       number: 5,
-      title: "Honor your parents",
-      text: "Honor your father and your mother, so that you may live long in the land the LORD your God is giving you. This is the first commandment with a promise attached to it - long life in the land that God provides. It establishes the foundation of respect for authority and family structure, recognizing parents as God's appointed guardians and teachers in our lives."
+      title: "Honor Your Parents",
+      text: "Honor your father and your mother, so that you may live long in the land.",
+      reference: "Exodus 20:12",
+      explanation: "The first command regarding human relationships. Commands respect for parental authority and carries a promise of societal longevity.",
     },
     {
       number: 6,
-      title: "You shall not murder",
-      text: "You shall not murder. This commandment protects the sanctity of human life, as every person is made in the image of God (Genesis 1:27). It encompasses not just physical killing, but Jesus expanded this to include hatred and anger toward others (Matthew 5:21-22), showing that murder begins in the heart with malice and contempt for others."
+      title: "Do Not Murder",
+      text: "You shall not murder.",
+      reference: "Exodus 20:13",
+      explanation: "Uses the Hebrew word 'Ratsach,' referring specifically to intentional, malicious killing, distinct from killing in war or self-defense.",
     },
     {
       number: 7,
-      title: "You shall not commit adultery",
-      text: "You shall not commit adultery. This commandment protects the sacred covenant of marriage, which God established as a reflection of His faithful love for His people. It preserves the integrity of the family unit and the trust between spouses. Jesus further taught that even lustful thoughts constitute adultery of the heart (Matthew 5:27-28)."
+      title: "Do Not Commit Adultery",
+      text: "You shall not commit adultery.",
+      reference: "Exodus 20:14",
+      explanation: "Protects the sanctity of the marriage covenant. Demands absolute sexual and emotional fidelity within the marital union.",
     },
     {
       number: 8,
-      title: "You shall not steal",
-      text: "You shall not steal. This commandment protects personal property and establishes the principle of honest work and fair exchange. It goes beyond taking physical objects to include stealing time, reputation, credit for work, or defrauding others in business. It affirms that we should work honestly for what we need and share generously with those in need (Ephesians 4:28)."
+      title: "Do Not Steal",
+      text: "You shall not steal.",
+      reference: "Exodus 20:15",
+      explanation: "Protects property and personal integrity. Forbids taking what belongs to another, including physical goods or time.",
     },
     {
       number: 9,
-      title: "You shall not bear false witness",
-      text: "You shall not give false testimony against your neighbor. This commandment protects truth and justice, particularly in legal matters, but extends to all forms of dishonesty including lies, slander, gossip, and character assassination. It establishes that truth is sacred because God Himself is truth (John 14:6), and calls us to speak truthfully and protect others' reputations."
+      title: "No False Witness",
+      text: "You shall not give false testimony against your neighbor.",
+      reference: "Exodus 20:16",
+      explanation: "A command for absolute truth. It prohibits lying, slander, and perjury that harms another's reputation or legal standing.",
     },
     {
       number: 10,
-      title: "You shall not covet",
-      text: "You shall not covet your neighbor's house. You shall not covet your neighbor's wife, or his male or female servant, his ox or donkey, or anything that belongs to your neighbor. This final commandment addresses the heart's desires and is unique because it deals with internal attitudes rather than external actions. Coveting is the root of many other sins - it can lead to theft, adultery, murder, and false testimony. It calls us to contentment with what God has provided and to rejoice in others' blessings rather than envying them."
-    }
+      title: "Do Not Covet",
+      text: "You shall not covet your neighbor's house... wife, or anything that belongs to your neighbor.",
+      reference: "Exodus 20:17",
+      explanation: "The only 'internal' commandment. It addresses the root of sin: the disordered desire for what belongs to someone else.",
+    },
   ];
 
-  useEffect(() => {
-    const fetchCommandments = async () => {
-      try {
-        // Fetch Exodus 20:1-17 (The Ten Commandments)
-        const passage = await bibleApi.getPassage('EXO.20.1-17');
-        setCommandmentsData(passage);
-      } catch (error) {
-        console.error('Failed to fetch Ten Commandments:', error);
-        // Keep default list if API fails
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchCommandments();
-  }, []);
+  const handlePrint = () => {
+    window.print();
+  };
 
   return (
-    <div className="page">
-      <h1>🕊️ The Ten Commandments</h1>
-      <p>The fundamental laws given by God to Moses on Mount Sinai (Exodus 20:1-17)</p>
+    <div className="commandments-page" style={pageStyle}>
       
-      {loading ? (
-        <div style={{textAlign: 'center', padding: '40px', color: '#666'}}>
-          <p>Loading Ten Commandments from Scripture...</p>
-        </div>
-      ) : (
-        <>
-          {/* Display the full biblical passage */}
-          {commandmentsData && (
-            <div style={{
-              backgroundColor: 'white',
-              padding: '25px',
-              borderRadius: '10px',
-              boxShadow: '0 3px 15px rgba(0,0,0,0.1)',
-              marginBottom: '30px',
-              borderLeft: '4px solid #3498db'
-            }}>
-              <h3 style={{color: '#3498db', marginBottom: '15px'}}>
-                📜 {commandmentsData.reference}
-              </h3>
-              <div 
-                style={{
-                  fontSize: '16px',
-                  lineHeight: '1.8',
-                  color: '#2c3e50',
-                  textAlign: 'justify'
-                }}
-                dangerouslySetInnerHTML={{ __html: commandmentsData.content }}
-              />
-            </div>
-          )}
+      {/* HEADER & PRINT BUTTON (Hidden on Print) */}
+      <div className="no-print" style={headerStyle}>
+        <h1 style={{ margin: "0 0 10px 0", color: "#1e3a8a" }}>The Ten Commandments</h1>
+        <p style={{ color: "#64748b", marginBottom: "20px" }}>
+          Biblical study resource formatted for digital reading and printing.
+        </p>
+        <button onClick={handlePrint} style={printButtonStyle}>
+          🖨️ Print for Free / Save as PDF
+        </button>
+      </div>
 
-          {/* Display the complete commandments */}
-          <h2 style={{color: '#2c3e50', marginBottom: '20px'}}>The Ten Commandments in Full:</h2>
-          <div className="commandments-list">
-            {commandmentsList.map((commandment, index) => (
-              <div key={index} className="commandment-card" style={{
-                backgroundColor: 'white',
-                padding: '25px',
-                margin: '20px 0',
-                borderRadius: '10px',
-                boxShadow: '0 3px 15px rgba(0,0,0,0.1)',
-                borderLeft: '5px solid #3498db'
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '20px'
-                }}>
-                  <div style={{
-                    backgroundColor: '#3498db',
-                    color: 'white',
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 'bold',
-                    fontSize: '18px',
-                    flexShrink: 0
-                  }}>
-                    {commandment.number}
-                  </div>
-                  <div style={{flex: 1}}>
-                    <h3 style={{
-                      color: '#2c3e50',
-                      marginBottom: '15px',
-                      fontSize: '20px'
-                    }}>
-                      {commandment.title}
-                    </h3>
-                    <p style={{
-                      fontSize: '16px',
-                      lineHeight: '1.7',
-                      color: '#34495e',
-                      margin: 0,
-                      textAlign: 'justify'
-                    }}>
-                      "{commandment.text}"
-                    </p>
-                  </div>
+      {/* PRINT-ONLY HEADER (Only shows on Paper) */}
+      <div className="print-only" style={{ display: 'none' }}>
+        <h1 style={{ textAlign: 'center' }}>The Ten Commandments</h1>
+        <p style={{ textAlign: 'center', marginBottom: '30px' }}>Study Resource from BibleWebsite.com</p>
+      </div>
+
+      {/* COMMANDMENTS LIST */}
+      <div className="commandments-container" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+        {commandments.map((item) => (
+          <div key={item.number} className="commandment-card" style={cardStyle}>
+            <div style={{ display: "flex", gap: "20px" }}>
+              <div style={numberCircleStyle}>{item.number}</div>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ marginTop: "0", marginBottom: "8px", color: "#1e3a8a" }}>{item.title}</h3>
+                <p style={{ fontStyle: "italic", color: "#475569", lineHeight: "1.5", margin: "0 0 10px 0" }}>
+                  "{item.text}"
+                </p>
+                <div style={explanationBoxStyle}>
+                  <strong style={{ color: "#2563eb" }}>Context:</strong> {item.explanation}
                 </div>
+                <div style={refStyle}>Source: {item.reference}</div>
               </div>
-            ))}
+            </div>
           </div>
-        </>
-      )}
+        ))}
+      </div>
+
+      {/* FOOTER NOTE (February 2026 Context) */}
+      <footer style={{ marginTop: '40px', textAlign: 'center', fontSize: '12px', color: '#94a3b8' }}>
+        Resource generated for the 2026 Biblical Year.
+      </footer>
+
+      {/* PRINT STYLES */}
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          .print-only { display: block !important; }
+          body { background: white !important; }
+          .commandments-page { max-width: 100% !important; padding: 0 !important; }
+          .commandment-card { 
+            border: 1px solid #e2e8f0 !important; 
+            break-inside: avoid; 
+            margin-bottom: 20px !important;
+            box-shadow: none !important;
+            page-break-inside: avoid;
+          }
+          h3 { color: black !important; }
+          strong { color: black !important; }
+        }
+      `}</style>
     </div>
   );
 }
+
+// ==========================================
+// STYLING OBJECTS
+// ==========================================
+
+const pageStyle = {
+  maxWidth: "850px",
+  margin: "0 auto",
+  padding: "40px 20px",
+  fontFamily: "system-ui, -apple-system, sans-serif",
+  backgroundColor: "#fcfcfc",
+};
+
+const headerStyle = {
+  textAlign: "center",
+  marginBottom: "40px",
+  padding: "30px",
+  backgroundColor: "#fff",
+  borderRadius: "16px",
+  boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+};
+
+const printButtonStyle = {
+  backgroundColor: "#2563eb",
+  color: "white",
+  border: "none",
+  padding: "12px 24px",
+  borderRadius: "8px",
+  fontWeight: "bold",
+  cursor: "pointer",
+  transition: "0.2s",
+};
+
+const cardStyle = {
+  backgroundColor: "#fff",
+  padding: "25px",
+  borderRadius: "12px",
+  border: "1px solid #e2e8f0",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+};
+
+const numberCircleStyle = {
+  width: "40px",
+  height: "40px",
+  backgroundColor: "#eff6ff",
+  color: "#2563eb",
+  borderRadius: "50%",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontWeight: "bold",
+  fontSize: "20px",
+  flexShrink: 0,
+};
+
+const explanationBoxStyle = {
+  backgroundColor: "#f8fafc",
+  padding: "12px 15px",
+  borderRadius: "8px",
+  fontSize: "14px",
+  color: "#334155",
+  lineHeight: "1.5",
+  borderLeft: "4px solid #3b82f6",
+};
+
+const refStyle = {
+  fontSize: "11px",
+  color: "#94a3b8",
+  textAlign: "right",
+  marginTop: "10px",
+  textTransform: "uppercase",
+  letterSpacing: "1px",
+};
 
 export default TenCommandments;

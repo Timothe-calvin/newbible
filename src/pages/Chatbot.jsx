@@ -1,301 +1,228 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import enhancedAI from '../services/enhancedAI';
-import '../components/components.css';
 
 function Chatbot() {
   const [messages, setMessages] = useState([
-    {
-      text: "Hello! I'm your Bible study assistant. I can help with questions about faith, Scripture, and Christian living. I'll support my answers with relevant Bible verses when possible. How can I help you today?",
-      sender: 'bot',
-      timestamp: new Date()
-    }
+    { text: "Hello! I'm your Bible study assistant. I can help with questions about faith, Scripture, and Christian living. How can I help you today?", sender: 'bot', timestamp: new Date() }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // Accessibility States
+  const [fontSize, setFontSize] = useState(16);
+  const [highContrast, setHighContrast] = useState(false);
+  const [useDyslexicFont, setUseDyslexicFont] = useState(false);
 
-  // Check API configuration on component mount
-  useEffect(() => {
-    const config = enhancedAI.isConfigured();
-    
-    if (!config.fullyConfigured) {
-      setMessages(prev => [...prev, {
-        text: `⚠️ ${!config.openRouter ? 'AI service' : ''} ${!config.openRouter && !config.bibleApi ? 'and' : ''} ${!config.bibleApi ? 'Bible API' : ''} not fully configured. Some features may be limited.`,
-        sender: 'bot',
-        timestamp: new Date(),
-        isWarning: true
-      }]);
-    }
-  }, []);
+  const messagesEndRef = useRef(null);
 
-  // Parse and structure AI response for better formatting
-  const parseResponse = (responseText) => {
-    const lines = responseText.split('\n').filter(line => line.trim());
-    const structured = {
-      mainResponse: '',
-      sections: [],
-      keyPoints: [],
-      questions: []
-    };
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
-    let currentSection = null;
-    let mainResponseLines = [];
-    
-    for (const line of lines) {
-      const trimmed = line.trim();
-      
-      // Detect section headers (lines starting with numbers, bullets, or keywords)
-      if (trimmed.match(/^\d+\.|^[-*•]|^(Key|Important|Remember|Consider|Reflection):/i)) {
-        if (currentSection) {
-          structured.sections.push(currentSection);
-        }
-        currentSection = {
-          title: trimmed.replace(/^\d+\.\s*|^[-*•]\s*/g, ''),
-          content: []
-        };
-      }
-      // Detect questions (lines ending with ?)
-      else if (trimmed.endsWith('?')) {
-        structured.questions.push(trimmed);
-      }
-      // Detect key points (lines with emphasis words)
-      else if (trimmed.match(/^(Therefore|Thus|In summary|Most importantly|Remember that)/i)) {
-        structured.keyPoints.push(trimmed);
-      }
-      // Add to current section or main response
-      else if (currentSection) {
-        currentSection.content.push(trimmed);
-      } else {
-        mainResponseLines.push(trimmed);
-      }
-    }
+  useEffect(() => { scrollToBottom(); }, [messages]);
 
-    // Add final section if exists
-    if (currentSection) {
-      structured.sections.push(currentSection);
-    }
-
-    structured.mainResponse = mainResponseLines.join(' ');
-    
-    return structured;
+  // Text-to-Speech Function
+  const speak = (text) => {
+    window.speechSynthesis.cancel(); // Stop current speech
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.9; // Slightly slower for better clarity
+    window.speechSynthesis.speak(utterance);
   };
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
-
     const userMessage = input.trim();
-    const userMessageObj = {
-      text: userMessage,
-      sender: 'user',
-      timestamp: new Date()
-    };
-    
-    setMessages(prev => [...prev, userMessageObj]);
+    setMessages(prev => [...prev, { text: userMessage, sender: 'user', timestamp: new Date() }]);
     setInput('');
     setLoading(true);
 
     try {
-      // Get conversation history for context (last 5 messages)
-      const conversationHistory = messages
-        .slice(-5)
-        .filter(msg => msg.sender !== 'bot' || !msg.isWarning)
-        .map(msg => ({
-          role: msg.sender === 'user' ? 'user' : 'assistant',
-          content: msg.structuredResponse ? msg.text : msg.text
-        }));
-
-      const result = await enhancedAI.getChatResponse(userMessage, conversationHistory);
-      
-      // Parse the response for better structure
-      const structuredResponse = parseResponse(result.response);
-      
-      const botMessageObj = {
-        text: result.response,
-        structuredResponse: structuredResponse,
-        sender: 'bot',
-        timestamp: new Date(),
-        relevantVerses: result.relevantVerses,
-        keywords: result.keywords,
-        hasVerses: result.hasVerses
-      };
-      
-      setMessages(prev => [...prev, botMessageObj]);
-      
-    } catch (error) {
-      console.error('Chatbot error:', error);
-      setMessages(prev => [...prev, {
-        text: "I'm sorry, I'm having trouble responding right now. Please try again later or check if your internet connection is working.",
-        sender: 'bot',
-        timestamp: new Date(),
-        isError: true
+      const history = messages.slice(-5).map(msg => ({ 
+        role: msg.sender === 'user' ? 'user' : 'assistant', 
+        content: msg.text 
+      }));
+      const result = await enhancedAI.getChatResponse(userMessage, history);
+      setMessages(prev => [...prev, { 
+        text: result.response, 
+        sender: 'bot', 
+        timestamp: new Date(), 
+        relevantVerses: result.relevantVerses 
       }]);
+    } catch {
+      setMessages(prev => [...prev, { text: "Error connecting to service.", sender: 'bot', isError: true }]);
     }
-    
     setLoading(false);
   };
 
   return (
-    <div className="page">
-      <h1>🕊️ AI Bible Chatbot</h1>
-      <p>Ask questions about the Bible, faith, and spiritual guidance</p>
+    <div style={{ 
+      maxWidth: '1000px', 
+      margin: '0 auto', 
+      padding: '20px',
+      fontFamily: useDyslexicFont ? '"OpenDyslexic", sans-serif' : 'system-ui, sans-serif',
+      fontSize: `${fontSize}px`
+    }}>
       
-      <div className="chat-container">
-        <div className="messages">
+      {/* Accessibility Toolbar */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        gap: '15px', 
+        marginBottom: '20px',
+        padding: '10px',
+        backgroundColor: '#eee',
+        borderRadius: '8px'
+      }}>
+        <button onClick={() => setFontSize(f => f + 2)} aria-label="Increase text size">A+</button>
+        <button onClick={() => setFontSize(f => f - 2)} aria-label="Decrease text size">A-</button>
+        <button 
+          onClick={() => setHighContrast(!highContrast)} 
+          style={{ backgroundColor: highContrast ? '#000' : '#fff', color: highContrast ? '#fff' : '#000' }}
+        >
+          {highContrast ? 'Standard Contrast' : 'High Contrast'}
+        </button>
+        <button onClick={() => setUseDyslexicFont(!useDyslexicFont)}>
+          {useDyslexicFont ? 'Standard Font' : 'Dyslexia Font'}
+        </button>
+      </div>
+
+      <div 
+        role="log" 
+        aria-live="polite"
+        style={{ 
+          backgroundColor: highContrast ? '#000' : '#fff', 
+          borderRadius: '16px', 
+          boxShadow: '0 4px 20px rgba(0,0,0,0.1)', 
+          height: '70vh', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          overflow: 'hidden',
+          border: highContrast ? '2px solid #fff' : '1px solid #ddd'
+        }}
+      >
+        {/* Messages Area */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', backgroundColor: highContrast ? '#111' : '#fcfcfc' }}>
           {messages.map((message, index) => (
-            <div key={index} className={`message ${message.sender} ${message.isWarning ? 'warning' : ''} ${message.isError ? 'error' : ''}`}>
-              <div className="message-content">
-                {/* Render structured response for bot messages */}
-                {message.sender === 'bot' && message.structuredResponse ? (
-                  <div className="structured-response">
-                    {/* Main Response */}
-                    {message.structuredResponse.mainResponse && (
-                      <div className="main-response">
-                        <p>{message.structuredResponse.mainResponse}</p>
-                      </div>
-                    )}
-                    
-                    {/* Key Points */}
-                    {message.structuredResponse.keyPoints && message.structuredResponse.keyPoints.length > 0 && (
-                      <div className="key-points">
-                        <h6 style={{color: '#2c3e50', margin: '15px 0 8px 0', fontSize: '14px', fontWeight: 'bold'}}>
-                          💡 Key Points:
-                        </h6>
-                        {message.structuredResponse.keyPoints.map((point, pIndex) => (
-                          <div key={pIndex} style={{
-                            backgroundColor: '#f8f9fa',
-                            padding: '8px 12px',
-                            margin: '4px 0',
-                            borderRadius: '8px',
-                            borderLeft: '3px solid #007aff',
-                            fontSize: '14px'
-                          }}>
-                            {point}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    
-                    {/* Sections */}
-                    {message.structuredResponse.sections && message.structuredResponse.sections.length > 0 && (
-                      <div className="response-sections">
-                        {message.structuredResponse.sections.map((section, sIndex) => (
-                          <div key={sIndex} style={{
-                            backgroundColor: '#f5f5f7',
-                            padding: '12px',
-                            margin: '8px 0',
-                            borderRadius: '10px',
-                            border: '1px solid #e0e0e0'
-                          }}>
-                            <h6 style={{
-                              color: '#2c3e50',
-                              margin: '0 0 8px 0',
-                              fontSize: '14px',
-                              fontWeight: 'bold'
-                            }}>
-                              {section.title}
-                            </h6>
-                            {section.content.map((content, cIndex) => (
-                              <p key={cIndex} style={{
-                                margin: '4px 0',
-                                fontSize: '14px',
-                                lineHeight: '1.5'
-                              }}>
-                                {content}
-                              </p>
-                            ))}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    
-                    {/* Questions for Reflection */}
-                    {message.structuredResponse.questions && message.structuredResponse.questions.length > 0 && (
-                      <div className="reflection-questions">
-                        <h6 style={{color: '#2c3e50', margin: '15px 0 8px 0', fontSize: '14px', fontWeight: 'bold'}}>
-                          🤔 Questions for Reflection:
-                        </h6>
-                        {message.structuredResponse.questions.map((question, qIndex) => (
-                          <div key={qIndex} style={{
-                            backgroundColor: '#fff3cd',
-                            padding: '8px 12px',
-                            margin: '4px 0',
-                            borderRadius: '8px',
-                            borderLeft: '3px solid #ffc107',
-                            fontSize: '14px',
-                            fontStyle: 'italic'
-                          }}>
-                            {question}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    
-                    {/* Fallback to original text if no structure was found */}
-                    {!message.structuredResponse.mainResponse && 
-                     message.structuredResponse.sections.length === 0 && 
-                     message.structuredResponse.keyPoints.length === 0 && (
-                      <p>{message.text}</p>
-                    )}
-                  </div>
-                ) : (
-                  // Regular message display for user messages or unstructured bot messages
-                  <p>{message.text}</p>
-                )}
+            <div key={index} style={{ 
+              display: 'flex', 
+              flexDirection: 'column',
+              alignItems: message.sender === 'user' ? 'flex-end' : 'flex-start', 
+              marginBottom: '24px' 
+            }}>
+              <div style={{ 
+                maxWidth: '85%', 
+                padding: '16px 20px', 
+                borderRadius: '18px', 
+                lineHeight: '1.6',
+                backgroundColor: message.sender === 'user' 
+                  ? (highContrast ? '#fff' : '#007bff') 
+                  : (highContrast ? '#333' : '#fff'),
+                color: message.sender === 'user' 
+                  ? (highContrast ? '#000' : '#fff') 
+                  : (highContrast ? '#fff' : '#2c3e50'),
+                boxShadow: '0 2px 5px rgba(0,0,0,0.05)',
+                border: highContrast ? '1px solid #fff' : '1px solid #eee'
+              }}>
                 
-                {/* Display relevant Bible verses for bot messages */}
-                {message.sender === 'bot' && message.relevantVerses && message.relevantVerses.length > 0 && (
-                  <div className="bible-verses">
-                    <h5>📖 Supporting Scripture:</h5>
-                    <div className="mt-1">
-                      {message.relevantVerses.map((verse, vIndex) => (
-                        <div key={vIndex} className="verse-item">
-                          <div className="verse-text">
-                            "{verse.text}"
-                          </div>
-                          <div className="verse-reference">
-                            — {verse.reference}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                <div style={{ whiteSpace: 'pre-wrap' }}>{message.text}</div>
+
+                {/* TTS Button for Bot */}
+                {message.sender === 'bot' && (
+                  <button 
+                    onClick={() => speak(message.text)}
+                    style={{
+                      marginTop: '10px',
+                      background: 'none',
+                      border: '1px solid currentColor',
+                      borderRadius: '4px',
+                      color: 'inherit',
+                      padding: '2px 8px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}
+                    aria-label="Listen to this message"
+                  >
+                    🔊 Listen
+                  </button>
+                )}
+
+                {/* Scripture Section */}
+                {message.relevantVerses?.length > 0 && (
+                  <div style={{ 
+                    marginTop: '15px', 
+                    padding: '12px', 
+                    backgroundColor: highContrast ? '#444' : '#f0f7ff', 
+                    borderRadius: '8px',
+                    borderLeft: `4px solid ${highContrast ? '#fff' : '#007bff'}`
+                  }}>
+                    {message.relevantVerses.map((v, i) => (
+                      <div key={i} style={{ marginBottom: '10px' }}>
+                        <div style={{ fontStyle: 'italic', fontSize: '0.95em' }}>"{v.text}"</div>
+                        <div style={{ fontWeight: 'bold', color: highContrast ? '#fff' : '#007bff' }}>— {v.reference}</div>
+                      </div>
+                    ))}
                   </div>
                 )}
-                
-                {/* Display keywords that were searched */}
-                {message.sender === 'bot' && message.keywords && message.keywords.length > 0 && (
-                  <div className="search-keywords">
-                    🔍 Searched for: {message.keywords.join(', ')}
-                  </div>
-                )}
-              </div>
-              
-              {/* Timestamp */}
-              <div className={`message-timestamp ${message.sender === 'user' ? 'text-right' : 'text-left'}`}>
-                {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : ''}
               </div>
             </div>
           ))}
-          
-          {/* Loading indicator */}
+
           {loading && (
-            <div className="message bot loading-message">
-              <div className="loading-dots">
-                <span>🤔</span>
-                <span>Searching Scripture and preparing response...</span>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
+              marginBottom: '24px'
+            }}>
+              <div style={{
+                maxWidth: '85%',
+                padding: '12px 16px',
+                borderRadius: '18px',
+                backgroundColor: highContrast ? '#333' : '#fff',
+                color: highContrast ? '#fff' : '#2c3e50',
+                border: highContrast ? '1px solid #fff' : '1px solid #eee',
+                boxShadow: '0 2px 5px rgba(0,0,0,0.05)',
+                fontStyle: 'italic'
+              }}>
+                🤔 Thinking...
               </div>
             </div>
           )}
+
+          <div ref={messagesEndRef} />
         </div>
-        
-        <div className="chat-input">
-          <input
-            type="text"
-            placeholder="Ask me about the Bible..."
-            value={input}
+
+        {/* Input Area */}
+        <div style={{ padding: '20px', borderTop: '1px solid #ddd', backgroundColor: highContrast ? '#222' : '#fff', display: 'flex', gap: '12px' }}>
+          <input 
+            type="text" 
+            aria-label="Type your Bible question"
+            placeholder="Ask a question..." 
+            value={input} 
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-            disabled={loading}
+            style={{ 
+              flex: 1, 
+              padding: '14px', 
+              borderRadius: '25px', 
+              border: '2px solid #eee',
+              outline: 'none'
+            }}
           />
-          <button onClick={handleSend} disabled={loading}>
+          <button 
+            onClick={handleSend}
+            style={{ 
+              padding: '0 25px', 
+              borderRadius: '25px', 
+              backgroundColor: '#007bff', 
+              color: '#fff', 
+              border: 'none',
+              fontWeight: 'bold',
+              cursor: 'pointer'
+            }}
+            disabled={loading}
+            aria-label={loading ? 'AI is thinking' : 'Send message'}
+          >
             {loading ? 'Thinking...' : 'Send'}
           </button>
         </div>

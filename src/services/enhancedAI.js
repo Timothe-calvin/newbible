@@ -175,7 +175,7 @@ Use the provided relevant verses to strengthen your response, weaving them natur
 
       // Make API call to OpenRouter with timeout and retry
       const requestBody = JSON.stringify({
-        model: "openai/gpt-4o-mini",
+        model: "google/gemma-4-26b-a4b-it:free",
         messages: messages,
         max_tokens: 800,
         temperature: 0.7,

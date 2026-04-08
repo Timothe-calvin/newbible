@@ -181,7 +181,7 @@ Use the provided relevant verses to strengthen your response, weaving them natur
 
       // Make API call to OpenRouter with timeout and retry
       const requestBody = JSON.stringify({
-        model: "meta-llama/llama-3.2-3b-instruct:free",
+        model: "google/gemma-7b-it:free",
         messages: messages,
         max_tokens: 800,
         temperature: 0.7,

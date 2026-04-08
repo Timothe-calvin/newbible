@@ -14,17 +14,20 @@ class EnhancedAIService {
     // Performance monitoring
     this.performanceMonitor = apiUtils.createPerformanceMonitor();
 
-    // Rate limiting for AI requests - more conservative for free models
-    this.rateLimiter = apiUtils.createRateLimiter(2, 60000); // 2 requests per minute
+    // Rate limiting for AI requests - very conservative for free models
+    this.rateLimiter = apiUtils.createRateLimiter(1, 120000); // 1 request per 2 minutes
 
     console.log('🤖 EnhancedAI Service initialized:', {
       hasApiKey: !!this.apiKey,
+      apiKeyValid: this.apiKey && this.apiKey.startsWith('sk-or-v1-'),
       hasBibleKey: !!this.bibleApiKey,
       apiUrl: this.apiUrl
     });
 
     if (!this.apiKey) {
       console.warn('⚠️ OpenRouter API key not configured');
+    } else if (!this.apiKey.startsWith('sk-or-v1-')) {
+      console.warn('⚠️ OpenRouter API key format appears invalid');
     }
     if (!this.bibleApiKey) {
       console.warn('⚠️ Bible API key not configured');
@@ -108,8 +111,8 @@ class EnhancedAIService {
       // Check rate limiting
       await this.rateLimiter.checkLimit();
       
-      // Add small delay to prevent rate limit issues
-      await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+      // Add longer delay to prevent rate limit issues with free models
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
       
       // Extract Bible-related keywords from user message
       const keywords = this.extractBibleKeywords(userMessage);
@@ -206,7 +209,7 @@ Use the provided relevant verses to strengthen your response, weaving them natur
           throw new Error('AI service authentication failed. Please check your API key.');
         }
         if (response.status === 429) {
-          throw new Error('AI service rate limit exceeded. Please try again in a moment.');
+          throw new Error('Rate limit exceeded. Free models have strict limits. Please wait 2-3 minutes before trying again, or consider upgrading to a paid plan.');
         }
         if (response.status === 503) {
           throw new Error('AI service is temporarily unavailable. Please try again shortly.');

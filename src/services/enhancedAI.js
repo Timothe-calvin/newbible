@@ -14,8 +14,8 @@ class EnhancedAIService {
     // Performance monitoring
     this.performanceMonitor = apiUtils.createPerformanceMonitor();
 
-    // Rate limiting for AI requests
-    this.rateLimiter = apiUtils.createRateLimiter(5, 60000); // 5 requests per minute
+    // Rate limiting for AI requests - more conservative for free models
+    this.rateLimiter = apiUtils.createRateLimiter(2, 60000); // 2 requests per minute
 
     console.log('🤖 EnhancedAI Service initialized:', {
       hasApiKey: !!this.apiKey,
@@ -108,6 +108,9 @@ class EnhancedAIService {
       // Check rate limiting
       await this.rateLimiter.checkLimit();
       
+      // Add small delay to prevent rate limit issues
+      await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+      
       // Extract Bible-related keywords from user message
       const keywords = this.extractBibleKeywords(userMessage);
       
@@ -175,7 +178,7 @@ Use the provided relevant verses to strengthen your response, weaving them natur
 
       // Make API call to OpenRouter with timeout and retry
       const requestBody = JSON.stringify({
-        model: "google/gemma-4-26b-a4b-it:free",
+        model: "meta-llama/llama-3.2-3b-instruct:free",
         messages: messages,
         max_tokens: 800,
         temperature: 0.7,
@@ -254,6 +257,7 @@ Use the provided relevant verses to strengthen your response, weaving them natur
         userMessage = 'AI model temporarily unavailable. Please try again later.';
       }
 
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(userMessage);
     }
   }

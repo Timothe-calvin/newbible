@@ -6,22 +6,28 @@ class EnhancedAIService {
     this.apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
     this.apiUrl = import.meta.env.VITE_OPENROUTER_API_URL;
     this.bibleApiKey = import.meta.env.VITE_BIBLE_API_KEY;
-    
+
     // Enhanced caching for AI responses
     this.responseCache = apiUtils.createCache(30 * 60 * 1000); // 30 minutes
     this.versesCache = apiUtils.createCache(15 * 60 * 1000); // 15 minutes
-    
+
     // Performance monitoring
     this.performanceMonitor = apiUtils.createPerformanceMonitor();
-    
+
     // Rate limiting for AI requests
     this.rateLimiter = apiUtils.createRateLimiter(5, 60000); // 5 requests per minute
-    
+
+    console.log('🤖 EnhancedAI Service initialized:', {
+      hasApiKey: !!this.apiKey,
+      hasBibleKey: !!this.bibleApiKey,
+      apiUrl: this.apiUrl
+    });
+
     if (!this.apiKey) {
-      console.warn('OpenRouter API key not configured');
+      console.warn('⚠️ OpenRouter API key not configured');
     }
     if (!this.bibleApiKey) {
-      console.warn('Bible API key not configured');
+      console.warn('⚠️ Bible API key not configured');
     }
   }
 
@@ -169,7 +175,7 @@ Use the provided relevant verses to strengthen your response, weaving them natur
 
       // Make API call to OpenRouter with timeout and retry
       const requestBody = JSON.stringify({
-        model: "anthropic/claude-3.5-sonnet",
+        model: "openai/gpt-4o-mini",
         messages: messages,
         max_tokens: 800,
         temperature: 0.7,
@@ -233,17 +239,21 @@ Use the provided relevant verses to strengthen your response, weaving them natur
 
     } catch (error) {
       console.error('Enhanced AI Service error:', error);
-      
+
       // Provide user-friendly error messages
-      let userMessage = error.message;
+      let userMessage = 'An unexpected error occurred. Please try again.';
       if (error.message.includes('fetch') || error.message.includes('network')) {
         userMessage = 'Network connection issue. Please check your internet connection and try again.';
       } else if (error.message.includes('timeout')) {
         userMessage = 'The request took too long. Please try again with a shorter question.';
       } else if (error.message.includes('authentication') || error.message.includes('API key')) {
-        userMessage = 'AI service configuration issue. Please contact support.';
+        userMessage = 'AI service configuration issue. Please check your API key settings.';
+      } else if (error.message.includes('rate limit')) {
+        userMessage = 'Too many requests. Please wait a moment before trying again.';
+      } else if (error.message.includes('model')) {
+        userMessage = 'AI model temporarily unavailable. Please try again later.';
       }
-      
+
       throw new Error(userMessage);
     }
   }

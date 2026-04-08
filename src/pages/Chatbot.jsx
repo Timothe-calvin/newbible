@@ -48,8 +48,10 @@ function Chatbot() {
         timestamp: new Date(), 
         relevantVerses: result.relevantVerses 
       }]);
-    } catch {
-      setMessages(prev => [...prev, { text: "Error connecting to service.", sender: 'bot', isError: true }]);
+    } catch (error) {
+      console.error('Chatbot error:', error);
+      const errorMessage = error.message || "Error connecting to service.";
+      setMessages(prev => [...prev, { text: errorMessage, sender: 'bot', isError: true }]);
     }
     setLoading(false);
   };
